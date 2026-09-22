@@ -1,7 +1,31 @@
-import { pgTable, serial, text, integer, numeric, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, numeric, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 // ==========================================
-// 1. Users & Business Accounts (Multi-Tenant & Role Based)
+// 1. Commercial Businesses & Tenants
+// ==========================================
+export const businesses = pgTable(
+  "businesses",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    currency: text("currency").notNull().default("NGN"),
+    state: text("state").notNull().default("ACTIVE"), // 'ACTIVE' | 'SUSPENDED' | 'CLOSED'
+    ownerUserId: integer("owner_user_id"), // References the primary owner
+    subscriptionPlan: text("subscription_plan").notNull().default("STANDARD"), // 'TRIAL' | 'STANDARD' | 'ENTERPRISE'
+    subscriptionStatus: text("subscription_status").notNull().default("TRIAL"), // 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'GRACE_PERIOD' | 'RESTRICTED' | 'SUSPENDED' | 'CANCELLED'
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("businesses_state_idx").on(table.state),
+    index("businesses_owner_idx").on(table.ownerUserId),
+  ]
+);
+
+// ==========================================
+// 2. Users (Identity & Credentials)
 // ==========================================
 export const users = pgTable(
   "users",
@@ -10,16 +34,157 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     passwordHash: text("password_hash").notNull(),
     fullName: text("full_name").notNull(),
-    role: text("role").notNull().default("OWNER"), // 'OWNER' | 'STAFF'
+    phone: text("phone"),
+    role: text("role").notNull().default("OWNER"), // 'OWNER' | 'STAFF' (kept for backwards compatibility)
     businessName: text("business_name").notNull().default("My Building Materials Shop"),
-    businessOwnerId: integer("business_owner_id"), // References owner for STAFF users
+    businessOwnerId: integer("business_owner_id"), // References owner for STAFF users (legacy)
     isActive: boolean("is_active").notNull().default(true),
+    isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("users_email_idx").on(table.email),
     index("users_business_owner_idx").on(table.businessOwnerId),
+  ]
+);
+
+// ==========================================
+// 3. Business Memberships (Staff Lifecycle & Role Delegation)
+// ==========================================
+export const businessMemberships = pgTable(
+  "business_memberships",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("STAFF"), // 'OWNER' | 'STAFF'
+    status: text("status").notNull().default("ACTIVE"), // 'INVITED' | 'ACCEPTED' | 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED'
+    customCapabilities: text("custom_capabilities"), // JSON array string of delegated capabilities e.g. ["SALE_CREATE", "DELIVERY_CREATE"]
+    invitedByUserId: integer("invited_by_user_id").references(() => users.id),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("business_user_idx").on(table.businessId, table.userId),
+    index("memberships_business_idx").on(table.businessId),
+    index("memberships_user_idx").on(table.userId),
+    index("memberships_status_idx").on(table.status),
+  ]
+);
+
+// ==========================================
+// 4. Staff Invitations (Owner Controlled, Single-Use, Short-Lived)
+// ==========================================
+export const staffInvitations = pgTable(
+  "staff_invitations",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(), // Cryptographic token
+    inviteeEmail: text("invitee_email"), // Optional target email
+    inviteeName: text("invitee_name"), // Target display name
+    role: text("role").notNull().default("STAFF"), // Default role 'STAFF'
+    invitedByUserId: integer("invited_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status").notNull().default("PENDING"), // 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED'
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedByUserId: integer("accepted_by_user_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("invitations_token_idx").on(table.token),
+    index("invitations_business_idx").on(table.businessId),
+    index("invitations_status_idx").on(table.status),
+  ]
+);
+
+// ==========================================
+// 5. Business Subscriptions & Entitlements
+// ==========================================
+export const businessSubscriptions = pgTable(
+  "business_subscriptions",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    plan: text("plan").notNull().default("STANDARD"), // 'TRIAL' | 'STANDARD' | 'ENTERPRISE'
+    status: text("status").notNull().default("TRIAL"), // 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'GRACE_PERIOD' | 'RESTRICTED' | 'SUSPENDED' | 'CANCELLED'
+    provider: text("provider").notNull().default("DIRECT"), // 'DIRECT' | 'PAYSTACK' | 'STRIPE'
+    providerSubscriptionId: text("provider_subscription_id"),
+    providerCustomerId: text("provider_customer_id"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("subscriptions_business_idx").on(table.businessId),
+    index("subscriptions_status_idx").on(table.status),
+  ]
+);
+
+// ==========================================
+// 6. Billing & Payment Transactions
+// ==========================================
+export const billingTransactions = pgTable(
+  "billing_transactions",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("NGN"),
+    status: text("status").notNull().default("SUCCEEDED"), // 'SUCCEEDED' | 'PENDING' | 'FAILED' | 'REFUNDED'
+    provider: text("provider").notNull().default("DIRECT"),
+    providerReference: text("provider_reference"),
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("billing_business_idx").on(table.businessId),
+    index("billing_status_idx").on(table.status),
+  ]
+);
+
+// ==========================================
+// 7. Scoped Platform Support Access Logs
+// ==========================================
+export const supportAccessLogs = pgTable(
+  "support_access_logs",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    platformAdminUserId: integer("platform_admin_user_id")
+      .notNull()
+      .references(() => users.id),
+    reason: text("reason").notNull(),
+    scope: text("scope").notNull().default("READ_ONLY"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("support_business_idx").on(table.businessId),
+    index("support_admin_idx").on(table.platformAdminUserId),
   ]
 );
 
@@ -285,10 +450,14 @@ export const auditLogs = pgTable(
     reason: text("reason"),
     source: text("source").notNull().default("WEB"), // 'WEB' | 'WHATSAPP' | 'SYSTEM'
     isSensitive: boolean("is_sensitive").notNull().default(false), // Purchase prices etc.
+    businessId: integer("business_id"), // Commercial Tenant ID
+    beforeState: text("before_state"), // Snapshot before modification
+    afterState: text("after_state"), // Snapshot after modification
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("audit_user_id_idx").on(table.userId),
+    index("audit_business_id_idx").on(table.businessId),
     index("audit_created_at_idx").on(table.createdAt),
     index("audit_event_type_idx").on(table.eventType),
   ]
@@ -321,6 +490,18 @@ export const dailyCashChecks = pgTable(
   ]
 );
 
+export type Business = typeof businesses.$inferSelect;
+export type NewBusiness = typeof businesses.$inferInsert;
+export type BusinessMembership = typeof businessMemberships.$inferSelect;
+export type NewBusinessMembership = typeof businessMemberships.$inferInsert;
+export type StaffInvitation = typeof staffInvitations.$inferSelect;
+export type NewStaffInvitation = typeof staffInvitations.$inferInsert;
+export type BusinessSubscription = typeof businessSubscriptions.$inferSelect;
+export type NewBusinessSubscription = typeof businessSubscriptions.$inferInsert;
+export type BillingTransaction = typeof billingTransactions.$inferSelect;
+export type NewBillingTransaction = typeof billingTransactions.$inferInsert;
+export type SupportAccessLog = typeof supportAccessLogs.$inferSelect;
+export type NewSupportAccessLog = typeof supportAccessLogs.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;

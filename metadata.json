@@ -1,0 +1,6 @@
+{
+  "name": "SISPA",
+  "description": "Smart stock and buying assistant for building-material distributors and wholesalers",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

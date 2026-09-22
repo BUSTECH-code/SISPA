@@ -98,13 +98,18 @@ export async function PATCH(request: Request) {
     const user = await requireAuth();
     const { businessId } = resolveBusinessContext(user);
     const body = await request.json();
-    const { id, isCompleted } = body;
+    const { id, isCompleted, quantityToBuy } = body;
 
     if (!id || isNaN(Number(id))) {
       return NextResponse.json({ success: false, error: "Item ID is required." }, { status: 400 });
     }
 
-    const item = await toggleBuyingListItem(businessId, Number(id), Boolean(isCompleted));
+    const item = await toggleBuyingListItem(
+      businessId,
+      Number(id),
+      isCompleted !== undefined ? Boolean(isCompleted) : undefined,
+      quantityToBuy !== undefined ? Number(quantityToBuy) : undefined
+    );
     return NextResponse.json({ success: true, data: item });
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED") {

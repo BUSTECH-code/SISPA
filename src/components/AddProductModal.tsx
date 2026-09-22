@@ -2,10 +2,10 @@
 
 import React, { useState } from "react";
 import { useStock } from "@/context/StockContext";
-import { PackagePlus, X, Check, AlertCircle, Tag } from "lucide-react";
+import { PackagePlus, X, Check, AlertCircle, Tag, Lock } from "lucide-react";
 
 export function AddProductModal() {
-  const { activeModal, closeModal, refreshData } = useStock();
+  const { activeModal, closeModal, refreshData, isOwner } = useStock();
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Cement & Aggregates");
@@ -250,15 +250,22 @@ export function AddProductModal() {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Price paid for one (₦)
                   </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    placeholder="e.g. 8500"
-                    value={openingUnitCost}
-                    onChange={(e) => setOpeningUnitCost(e.target.value)}
-                    className="w-full min-h-[42px] rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-900"
-                  />
+                  {isOwner ? (
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      placeholder="e.g. 8500"
+                      value={openingUnitCost}
+                      onChange={(e) => setOpeningUnitCost(e.target.value)}
+                      className="w-full min-h-[42px] rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-900"
+                    />
+                  ) : (
+                    <div className="flex min-h-[42px] items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs text-slate-500 font-medium">
+                      <Lock className="h-3.5 w-3.5 text-slate-400" />
+                      <span>Owner confidential</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

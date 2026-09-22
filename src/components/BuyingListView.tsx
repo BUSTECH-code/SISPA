@@ -20,6 +20,7 @@ export function BuyingListView() {
     buyingList,
     totalEstimatedOutlay,
     toggleBuyingItem,
+    updateBuyingItemQty,
     removeBuyingItem,
     clearCompletedBuyingItems,
     openRecordDelivery,
@@ -227,10 +228,44 @@ export function BuyingListView() {
                             </span>
                           </div>
 
-                          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                            <span className="font-bold text-amber-900">
-                              Buy: {item.quantityToBuy} {item.productUnit}
-                            </span>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                            {/* Inline quantity adjuster stepper */}
+                            <div className="flex items-center gap-1.5 bg-slate-100 rounded-xl p-1 border border-slate-200">
+                              <button
+                                onClick={() => {
+                                  const step = (matchingProd as any)?.packetSize || 1;
+                                  const newQty = Math.max(1, item.quantityToBuy - step);
+                                  updateBuyingItemQty(item.id, newQty);
+                                }}
+                                disabled={item.quantityToBuy <= 1}
+                                className="h-6 w-6 rounded-lg bg-white flex items-center justify-center text-slate-700 font-black shadow-xs hover:bg-slate-50 disabled:opacity-30 transition-colors"
+                                title="Decrease buy quantity"
+                              >
+                                -
+                              </button>
+                              <span className="min-w-[48px] text-center font-black text-xs text-slate-900">
+                                {item.quantityToBuy} {item.productUnit}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const step = (matchingProd as any)?.packetSize || 1;
+                                  const newQty = item.quantityToBuy + step;
+                                  updateBuyingItemQty(item.id, newQty);
+                                }}
+                                className="h-6 w-6 rounded-lg bg-white flex items-center justify-center text-slate-700 font-black shadow-xs hover:bg-slate-50 transition-colors"
+                                title="Increase buy quantity"
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            {matchingProd?.intelligence?.suggestedPurchaseQuantity &&
+                              matchingProd.intelligence.suggestedPurchaseQuantity !== item.quantityToBuy && (
+                                <span className="text-[11px] text-slate-400">
+                                  (Suggested: {matchingProd.intelligence.suggestedPurchaseQuantity})
+                                </span>
+                              )}
+
                             {isOwner && itemCost && (
                               <span className="text-slate-500">
                                 ~₦{itemCost.toLocaleString()} each

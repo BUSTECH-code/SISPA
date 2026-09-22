@@ -1,15 +1,29 @@
 import { NextResponse } from "next/server";
 import { exportBusinessData } from "@/server/stockService";
 import { requireOwner, resolveBusinessContext } from "@/server/authService";
+import { recordSecurityAudit } from "@/server/auditService";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const user = await requireOwner();
-    const { businessId } = resolveBusinessContext(user);
+    const { businessId, actorId, actorName } = resolveBusinessContext(user);
 
     const payload = await exportBusinessData(businessId);
+
+    // Record audit event for compliance (Section 17, 18, 21)
+    await recordSecurityAudit({
+      businessId,
+      actorId,
+      actorName,
+      actorRole: "OWNER",
+      eventType: "BUSINESS_DATA_EXPORTED",
+      description: `Shop owner exported full business backup archive (${payload.products.length} products, ${payload.sales.length} sales)`,
+      entityType: "businesses",
+      entityId: businessId,
+      source: "WEB",
+    });
 
     return new Response(JSON.stringify(payload, null, 2), {
       status: 200,

@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
         role: user.role,
         businessName: user.businessName,
         businessOwnerId: user.businessOwnerId,
+        isPlatformAdmin: Boolean(user.isPlatformAdmin),
       },
       message: "Logged in successfully!",
     });

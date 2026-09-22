@@ -21,6 +21,7 @@ export async function GET() {
           role: user.role,
           businessName: user.businessName,
           businessOwnerId: user.businessOwnerId,
+          isPlatformAdmin: !!user.isPlatformAdmin,
         },
       },
     });

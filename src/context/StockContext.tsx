@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { EnrichedProduct, EnrichedCustomer, BusinessException } from "@/server/stockService";
+export type { EnrichedProduct, EnrichedCustomer, BusinessException };
 import type { BusinessPeriodMetrics } from "@/domain/debt";
 import type { Expense, AuditLog, DailyCashCheck } from "@/db/schema";
 
@@ -12,15 +13,34 @@ export interface UserProfile {
   role: "OWNER" | "STAFF";
   businessName: string;
   businessOwnerId?: number | null;
+  isPlatformAdmin?: boolean;
 }
 
 export interface StaffProfile {
   id: number;
+  userId?: number;
   email: string;
   fullName: string;
   role: string;
-  businessName: string;
-  isActive: boolean;
+  businessName?: string;
+  isActive?: boolean;
+  status?: "ACTIVE" | "SUSPENDED" | "DEACTIVATED" | string;
+  invitedAt?: string | null;
+  activatedAt?: string | null;
+  suspendedAt?: string | null;
+  deactivatedAt?: string | null;
+  createdAt: string;
+}
+
+export interface StaffInvitationItem {
+  id: number;
+  token: string;
+  inviteUrl?: string;
+  inviteeName: string;
+  inviteeEmail: string | null;
+  role: string;
+  status: string;
+  expiresAt: string;
   createdAt: string;
 }
 
@@ -118,7 +138,12 @@ interface StockContextType {
 
   // Staff Management (Owner only)
   staffMembers: StaffProfile[];
+  staffInvitations: StaffInvitationItem[];
   createStaffUser: (fullName: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  createStaffInvitation: (fullName: string, email?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  revokeStaffInvitation: (invitationId: number) => Promise<boolean>;
+  updateStaffStatus: (staffUserId: number, newStatus: "ACTIVE" | "SUSPENDED" | "DEACTIVATED", reason?: string) => Promise<{ success: boolean; error?: string }>;
+  transferOwnership: (newOwnerUserId: number, passwordConfirmation: string, reason?: string) => Promise<{ success: boolean; error?: string }>;
 
   // Sale Correction & Delivery Purchase Cost
   recordSaleCorrection: (originalSaleId: number, correctedQuantityDelta: number, correctionReason: string) => Promise<boolean>;
@@ -168,13 +193,16 @@ interface StockContextType {
   openAuthModal: () => void;
   closeModal: () => void;
 
+  isPlatformAdmin: boolean;
+
   // Active view tab
-  activeTab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP";
-  setActiveTab: (tab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP") => void;
+  activeTab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN";
+  setActiveTab: (tab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN") => void;
 
   // Actions
   addToBuyingList: (product: EnrichedProduct, customQty?: number) => Promise<boolean>;
   toggleBuyingItem: (id: number, isCompleted: boolean) => Promise<boolean>;
+  updateBuyingItemQty: (id: number, quantityToBuy: number) => Promise<boolean>;
   removeBuyingItem: (id: number) => Promise<boolean>;
   clearCompletedBuyingItems: () => Promise<boolean>;
   resetWithDemoData: () => Promise<void>;
@@ -210,6 +238,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
   const [dailyCashChecks, setDailyCashChecks] = useState<DailyCashCheck[]>([]);
   const [exceptions, setExceptions] = useState<BusinessException[]>([]);
   const [staffMembers, setStaffMembers] = useState<StaffProfile[]>([]);
+  const [staffInvitations, setStaffInvitations] = useState<StaffInvitationItem[]>([]);
 
   const [weeklyReport, setWeeklyReport] = useState<ReportData | null>(null);
   const [reportPeriodDays, setReportPeriodDays] = useState(7);
@@ -219,7 +248,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
 
   // Navigation and Modals
   const [activeTab, setActiveTab] = useState<
-    "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP"
+    "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN"
   >("HOME");
   const [suppliers, setSuppliers] = useState<StockContextType["suppliers"]>([]);
 
@@ -374,6 +403,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
   const fetchStaff = useCallback(async (isOwnerUser: boolean) => {
     if (!isOwnerUser) {
       setStaffMembers([]);
+      setStaffInvitations([]);
       return;
     }
     try {
@@ -381,7 +411,13 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
-          setStaffMembers(json.data);
+          if (json.data && json.data.staff) {
+            setStaffMembers(json.data.staff);
+            setStaffInvitations(json.data.invitations || []);
+          } else if (Array.isArray(json.data)) {
+            setStaffMembers(json.data);
+            setStaffInvitations([]);
+          }
         }
       }
     } catch (err) {
@@ -461,6 +497,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     fetchCashChecks,
     fetchExceptions,
     fetchStaff,
+    fetchSuppliers,
     fetchReport,
     reportPeriodDays,
   ]);
@@ -692,7 +729,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/staff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, email, password }),
+        body: JSON.stringify({ action: "CREATE_DIRECT", fullName, email, password }),
       });
       const json = await res.json();
       if (json.success) {
@@ -702,6 +739,90 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: json.error || "Failed to create staff member." };
     } catch {
       return { success: false, error: "Network error creating staff member." };
+    }
+  };
+
+  const createStaffInvitation = async (
+    fullName: string,
+    email?: string
+  ): Promise<{ success: boolean; data?: any; error?: string }> => {
+    try {
+      const res = await fetch("/api/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "INVITE", fullName, email }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        await refreshData();
+        return { success: true, data: json.data };
+      }
+      return { success: false, error: json.error || "Failed to generate invitation link." };
+    } catch {
+      return { success: false, error: "Network error generating invitation link." };
+    }
+  };
+
+  const revokeStaffInvitation = async (invitationId: number): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/staff?invitationId=${invitationId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        await refreshData();
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const updateStaffStatus = async (
+    staffUserId: number,
+    newStatus: "ACTIVE" | "SUSPENDED" | "DEACTIVATED",
+    reason?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/staff", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "UPDATE_STATUS", staffUserId, newStatus, reason }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        await refreshData();
+        return { success: true };
+      }
+      return { success: false, error: json.error || "Failed to update staff status." };
+    } catch {
+      return { success: false, error: "Network error updating staff status." };
+    }
+  };
+
+  const transferOwnership = async (
+    newOwnerUserId: number,
+    passwordConfirmation: string,
+    reason?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/staff", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "TRANSFER_OWNERSHIP",
+          newOwnerUserId,
+          passwordConfirmation,
+          reason,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        await refreshData();
+        return { success: true };
+      }
+      return { success: false, error: json.error || "Failed to transfer ownership." };
+    } catch {
+      return { success: false, error: "Network error transferring ownership." };
     }
   };
 
@@ -797,6 +918,24 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateBuyingItemQty = async (id: number, quantityToBuy: number): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/buying-list", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, quantityToBuy }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchBuyingList();
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   const removeBuyingItem = async (id: number): Promise<boolean> => {
     try {
       const res = await fetch(`/api/buying-list?id=${id}`, { method: "DELETE" });
@@ -843,6 +982,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
         user,
         isAuthenticated: !!user,
         isOwner: user?.role === "OWNER",
+        isPlatformAdmin: !!user?.isPlatformAdmin,
         login,
         signup,
         logout,
@@ -864,7 +1004,12 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
         exceptions,
         recordDailyCashCheck,
         staffMembers,
+        staffInvitations,
         createStaffUser,
+        createStaffInvitation,
+        revokeStaffInvitation,
+        updateStaffStatus,
+        transferOwnership,
         recordSaleCorrection,
         updateDeliveryCost,
         exportBusinessBackup,
@@ -896,6 +1041,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
         setActiveTab,
         addToBuyingList,
         toggleBuyingItem,
+        updateBuyingItemQty,
         removeBuyingItem,
         clearCompletedBuyingItems,
         resetWithDemoData,

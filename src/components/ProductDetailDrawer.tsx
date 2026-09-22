@@ -29,6 +29,7 @@ export function ProductDetailDrawer() {
     openCountStock,
     addToBuyingList,
     refreshData,
+    isOwner,
   } = useStock();
 
   const [ledgerHistory, setLedgerHistory] = useState<StockLedgerEntry[]>([]);
@@ -241,17 +242,19 @@ export function ProductDetailDrawer() {
             <span>Stock History ({ledgerHistory.length})</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab("SETTINGS")}
-            className={`flex items-center gap-1.5 border-b-2 py-2.5 px-3 text-xs font-bold transition-colors ${
-              activeTab === "SETTINGS"
-                ? "border-amber-600 text-amber-800"
-                : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            <Settings className="h-4 w-4" />
-            <span>Product & Price Settings</span>
-          </button>
+          {isOwner && (
+            <button
+              onClick={() => setActiveTab("SETTINGS")}
+              className={`flex items-center gap-1.5 border-b-2 py-2.5 px-3 text-xs font-bold transition-colors ${
+                activeTab === "SETTINGS"
+                  ? "border-amber-600 text-amber-800"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Settings className="h-4 w-4" />
+              <span>Product & Price Settings</span>
+            </button>
+          )}
         </div>
 
         {/* Tab Body */}
@@ -313,7 +316,7 @@ export function ProductDetailDrawer() {
                             {entry.supplierName && (
                               <div className="text-[10px] text-slate-500">
                                 Supplier: <strong>{entry.supplierName}</strong>
-                                {entry.unitCost && ` @ ₦${Number(entry.unitCost).toLocaleString()}`}
+                                {isOwner && entry.unitCost && ` @ ₦${Number(entry.unitCost).toLocaleString()}`}
                               </div>
                             )}
                           </div>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/server/authService";
+import { getCurrentUser, resolveBusinessContext } from "@/server/authService";
 import {
   getAllEnrichedProducts,
   getAllCustomers,
@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Please log in to use the assistant." }, { status: 401 });
     }
 
+    const { businessId, userRole, actorId, actorName } = resolveBusinessContext(user);
+
     const body = await request.json();
     const { message, executeAction, actionData } = body;
 
@@ -52,12 +54,16 @@ export async function POST(request: NextRequest) {
       const { intent, productId, quantity, customerId, amount, supplierName } = actionData;
 
       if (intent === "RECORD_SALE") {
-        const result = await recordSale({
-          userId: user.id,
+        await recordSale({
+          userId: businessId,
+          actorId,
+          actorName,
+          actorRole: userRole,
           productId: Number(productId),
           quantity: Number(quantity),
           customerId: customerId ? Number(customerId) : undefined,
           notes: "Recorded via WhatsApp Assistant",
+          source: "WHATSAPP",
         });
         return NextResponse.json({
           success: true,
@@ -67,11 +73,15 @@ export async function POST(request: NextRequest) {
       }
 
       if (intent === "RECORD_PAYMENT") {
-        const payment = await recordCustomerPayment({
-          userId: user.id,
+        await recordCustomerPayment({
+          userId: businessId,
+          actorId,
+          actorName,
+          actorRole: userRole,
           customerId: Number(customerId),
           amount: Number(amount),
           notes: "Recorded via WhatsApp Assistant",
+          source: "WHATSAPP",
         });
         return NextResponse.json({
           success: true,
@@ -81,12 +91,16 @@ export async function POST(request: NextRequest) {
       }
 
       if (intent === "RECORD_DELIVERY") {
-        const delivery = await recordDelivery({
-          userId: user.id,
+        await recordDelivery({
+          userId: businessId,
+          actorId,
+          actorName,
+          actorRole: userRole,
           productId: Number(productId),
           quantityReceived: Number(quantity),
           supplierName: supplierName || undefined,
           notes: "Recorded via WhatsApp Assistant",
+          source: "WHATSAPP",
         });
         return NextResponse.json({
           success: true,
@@ -100,12 +114,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Empty message." }, { status: 400 });
     }
 
-    const userRole = (user.role as "OWNER" | "STAFF") || "OWNER";
-
-    // Load user's authoritative data
+    // Load business authoritative data (Tenant-isolated)
     const [products, customers] = await Promise.all([
-      getAllEnrichedProducts(user.id, userRole),
-      getAllCustomers(user.id),
+      getAllEnrichedProducts(businessId, userRole),
+      getAllCustomers(businessId),
     ]);
 
     // Parse natural language using the domain engine
@@ -174,7 +186,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (parsed.intent === "QUERY_REPORT") {
-      const report = await getBusinessPeriodReport(user.id, 7, userRole);
+      // Capability check: Staff cannot access financial reports
+      if (userRole === "STAFF") {
+        return NextResponse.json({
+          success: true,
+          replyText: `🔒 *Access Restricted*\nDetailed shop financial summaries and business reports are reserved for the shop owner.`,
+          parsed,
+        });
+      }
+
+      const report = await getBusinessPeriodReport(businessId, 7, userRole);
       const urgentItems = products
         .filter((p) => p.intelligence.status === "RUNNING_LOW")
         .map((p) => ({
@@ -241,7 +262,10 @@ export async function POST(request: NextRequest) {
       parsed,
     });
   } catch (error: any) {
-    console.error("WhatsApp endpoint error:", error);
-    return NextResponse.json({ success: false, error: "Failed to process message." }, { status: 500 });
+    console.error("WhatsApp Assistant error:", error);
+    return NextResponse.json(
+      { success: false, error: "Error processing your request. Please try again." },
+      { status: 500 }
+    );
   }
 }

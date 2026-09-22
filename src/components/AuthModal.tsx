@@ -13,8 +13,31 @@ export function AuthModal() {
   const [businessName, setBusinessName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDemoLoggingIn, setIsDemoLoggingIn] = useState<string | null>(null);
 
   if (activeModal !== "AUTH") return null;
+
+  const handleDemoLogin = async (role: "OWNER" | "STAFF" | "PLATFORM_ADMIN") => {
+    setError(null);
+    setIsDemoLoggingIn(role);
+    try {
+      const res = await fetch("/api/auth/demo-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        window.location.reload();
+      } else {
+        setError(data.error || "Failed to switch role.");
+      }
+    } catch {
+      setError("Network error while logging in.");
+    } finally {
+      setIsDemoLoggingIn(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,8 +90,80 @@ export function AuthModal() {
           </button>
         </div>
 
+        {/* Quick Role Persona Switcher (1-Click) */}
+        <div className="mt-4 rounded-2xl bg-amber-50/80 p-3 border border-amber-200">
+          <div className="text-[11px] font-black uppercase tracking-wider text-amber-950 mb-2 flex items-center justify-between">
+            <span>⚡ Quick Test Roles (1-Click Switch)</span>
+            <span className="text-[10px] text-amber-700 font-medium">Evaluation Personas</span>
+          </div>
+          <div className="grid grid-cols-1 gap-1.5">
+            <button
+              type="button"
+              disabled={Boolean(isDemoLoggingIn)}
+              onClick={() => handleDemoLogin("OWNER")}
+              className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-xs font-bold text-slate-800 shadow-2xs border border-slate-200 hover:border-amber-400 hover:bg-amber-50/50 transition-colors"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-amber-700">🏢</span>
+                  <span className="font-black text-slate-900">Shop Owner</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Alhaji Musa</span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-normal">Full margins, purchase costs, debt, staff admin</div>
+              </div>
+              <span className="text-[10px] font-bold text-amber-700">
+                {isDemoLoggingIn === "OWNER" ? "Switching..." : "Login →"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={Boolean(isDemoLoggingIn)}
+              onClick={() => handleDemoLogin("STAFF")}
+              className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-xs font-bold text-slate-800 shadow-2xs border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-blue-700">👷</span>
+                  <span className="font-black text-slate-900">Staff Operator</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Musa Aminu</span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-normal">Record sales, receive trucks, counts; costs hidden</div>
+              </div>
+              <span className="text-[10px] font-bold text-blue-700">
+                {isDemoLoggingIn === "STAFF" ? "Switching..." : "Login →"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={Boolean(isDemoLoggingIn)}
+              onClick={() => handleDemoLogin("PLATFORM_ADMIN")}
+              className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-xs font-bold text-slate-800 shadow-2xs border border-slate-200 hover:border-purple-400 hover:bg-purple-50/50 transition-colors"
+            >
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-purple-700">🛡️</span>
+                  <span className="font-black text-slate-900">Platform Admin</span>
+                  <span className="text-[10px] text-slate-400 font-normal">SaaS Ops</span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-normal">SaaS tenants, subscriptions, auditable support grants</div>
+              </div>
+              <span className="text-[10px] font-bold text-purple-700">
+                {isDemoLoggingIn === "PLATFORM_ADMIN" ? "Switching..." : "Login →"}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div className="my-3 flex items-center gap-2 text-center text-xs text-slate-400">
+          <div className="h-px flex-1 bg-slate-200" />
+          <span>or sign in with credentials</span>
+          <div className="h-px flex-1 bg-slate-200" />
+        </div>
+
         {/* Form */}
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           {error && (
             <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs text-red-800 border border-red-200">
               <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />

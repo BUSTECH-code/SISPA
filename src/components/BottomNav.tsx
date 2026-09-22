@@ -9,6 +9,7 @@ import {
   CreditCard,
   FileText,
   MessageSquare,
+  ShieldCheck,
 } from "lucide-react";
 
 export function BottomNav() {
@@ -18,6 +19,8 @@ export function BottomNav() {
     counts,
     debtorsCount,
     buyingList,
+    isOwner,
+    user,
   } = useStock();
 
   const pendingBuyingCount = buyingList.filter((i) => !i.isCompleted).length;
@@ -98,18 +101,44 @@ export function BottomNav() {
           <span className="mt-1 text-[10px] leading-none">Buying</span>
         </button>
 
-        {/* Tab 5: Reports */}
-        <button
-          onClick={() => setActiveTab("REPORTS")}
-          className={`flex min-h-[48px] min-w-[48px] flex-col items-center justify-center rounded-xl px-1 py-1 transition-colors ${
-            activeTab === "REPORTS"
-              ? "text-amber-700 font-bold"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <FileText className="h-5 w-5" />
-          <span className="mt-1 text-[10px] leading-none">Reports</span>
-        </button>
+        {/* Tab 5: Role-sensitive tab */}
+        {user?.isPlatformAdmin ? (
+          <button
+            onClick={() => setActiveTab("PLATFORM_ADMIN")}
+            className={`flex min-h-[48px] min-w-[48px] flex-col items-center justify-center rounded-xl px-1 py-1 transition-colors ${
+              activeTab === "PLATFORM_ADMIN"
+                ? "text-amber-800 font-bold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <ShieldCheck className="h-5 w-5 text-amber-700" />
+            <span className="mt-1 text-[10px] leading-none">Admin</span>
+          </button>
+        ) : isOwner ? (
+          <button
+            onClick={() => setActiveTab("REPORTS")}
+            className={`flex min-h-[48px] min-w-[48px] flex-col items-center justify-center rounded-xl px-1 py-1 transition-colors ${
+              activeTab === "REPORTS"
+                ? "text-amber-700 font-bold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <FileText className="h-5 w-5" />
+            <span className="mt-1 text-[10px] leading-none">Reports</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setActiveTab("ACTIVITY")}
+            className={`flex min-h-[48px] min-w-[48px] flex-col items-center justify-center rounded-xl px-1 py-1 transition-colors ${
+              activeTab === "ACTIVITY"
+                ? "text-amber-700 font-bold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Boxes className="h-5 w-5" />
+            <span className="mt-1 text-[10px] leading-none">Activity</span>
+          </button>
+        )}
 
         {/* Tab 6: WhatsApp Assistant */}
         <button

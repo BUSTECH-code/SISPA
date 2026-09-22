@@ -32,6 +32,8 @@ import {
   type CustomerDebtSummary,
   type BusinessPeriodMetrics,
 } from "@/domain/debt";
+import { getAuthContextForUser } from "@/server/authService";
+import { assertCan, can, redactSensitiveDataForStaff } from "@/server/authorization";
 
 export interface EnrichedProduct extends Product {
   currentStock: number;
@@ -145,8 +147,12 @@ export async function getAuditLogs(
 
 export async function getAllEnrichedProducts(
   userId: number,
-  userRole: "OWNER" | "STAFF" = "OWNER"
+  userRole: "OWNER" | "STAFF" = "OWNER",
+  actorId?: number
 ): Promise<EnrichedProduct[]> {
+  const authCtx = await getAuthContextForUser(actorId || userId, userRole);
+  const canSeePurchaseCost = authCtx ? can(authCtx, "PURCHASE_COST_VIEW") : userRole === "OWNER";
+
   const userProducts = await db
     .select()
     .from(products)
@@ -223,7 +229,7 @@ export async function getAllEnrichedProducts(
     const lastSupplierInfo = lastRestockOrOpening
       ? {
           supplierName: lastRestockOrOpening.supplierName,
-          unitCost: userRole === "OWNER" && lastRestockOrOpening.unitCost ? Number(lastRestockOrOpening.unitCost) : null,
+          unitCost: canSeePurchaseCost && lastRestockOrOpening.unitCost ? Number(lastRestockOrOpening.unitCost) : null,
           quantity: Number(lastRestockOrOpening.quantityDelta),
           restockDate: new Date(lastRestockOrOpening.createdAt),
         }
@@ -241,11 +247,15 @@ export async function getAllEnrichedProducts(
 export async function getProductDetails(
   userId: number,
   productId: number,
-  userRole: "OWNER" | "STAFF" = "OWNER"
+  userRole: "OWNER" | "STAFF" = "OWNER",
+  actorId?: number
 ): Promise<{
   product: EnrichedProduct;
   ledgerHistory: Array<Omit<StockLedgerEntry, "unitCost"> & { unitCost: string | null }>;
 } | null> {
+  const authCtx = await getAuthContextForUser(actorId || userId, userRole);
+  const canSeePurchaseCost = authCtx ? can(authCtx, "PURCHASE_COST_VIEW") : userRole === "OWNER";
+
   const [prod] = await db
     .select()
     .from(products)
@@ -302,16 +312,16 @@ export async function getProductDetails(
   const lastSupplierInfo = lastRestockOrOpening
     ? {
         supplierName: lastRestockOrOpening.supplierName,
-        unitCost: userRole === "OWNER" && lastRestockOrOpening.unitCost ? Number(lastRestockOrOpening.unitCost) : null,
+        unitCost: canSeePurchaseCost && lastRestockOrOpening.unitCost ? Number(lastRestockOrOpening.unitCost) : null,
         quantity: Number(lastRestockOrOpening.quantityDelta),
         restockDate: new Date(lastRestockOrOpening.createdAt),
       }
     : null;
 
-  // Redact unitCost from history if role is STAFF
+  // Redact unitCost from history if user lacks PURCHASE_COST_VIEW capability
   const sanitizedHistory = entries.map((e) => ({
     ...e,
-    unitCost: userRole === "OWNER" ? e.unitCost : null,
+    unitCost: canSeePurchaseCost ? e.unitCost : null,
   }));
 
   return {
@@ -360,6 +370,13 @@ export async function addProduct(params: {
 
   if (!name || !name.trim()) {
     throw new Error("Please enter a product name.");
+  }
+
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "PRODUCT_CREATE");
+    }
   }
 
   const [product] = await db
@@ -437,6 +454,13 @@ export async function updateProduct(params: {
 
   if (!oldProd) {
     throw new Error("Product not found or not owned.");
+  }
+
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "PRODUCT_EDIT");
+    }
   }
 
   const updateData: Partial<typeof products.$inferInsert> = {
@@ -532,6 +556,13 @@ export async function recordSale(params: {
 
   if (quantity <= 0) {
     throw new Error("Enter a quantity greater than 0.");
+  }
+
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "SALE_CREATE");
+    }
   }
 
   const [prod] = await db
@@ -654,6 +685,13 @@ export async function recordSaleCorrection(params: {
     throw new Error("Please provide a reason for this sale correction.");
   }
 
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "SALE_CREATE");
+    }
+  }
+
   const [origSale] = await db
     .select()
     .from(sales)
@@ -755,6 +793,15 @@ export async function recordDelivery(params: {
     throw new Error("Enter a received quantity greater than 0.");
   }
 
+  let canEditCost = actorRole === "OWNER";
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "DELIVERY_CREATE");
+      canEditCost = can(authCtx, "PURCHASE_COST_EDIT");
+    }
+  }
+
   const [prod] = await db
     .select({ id: products.id, name: products.name, unit: products.unit })
     .from(products)
@@ -765,8 +812,8 @@ export async function recordDelivery(params: {
     throw new Error("Product not found or not owned by user.");
   }
 
-  // Commercial Sensitivity: only save unitCost if provided (staff may omit it)
-  const validatedCost = actorRole === "OWNER" && unitCost !== null && unitCost !== undefined && unitCost > 0
+  // Commercial Sensitivity: only save unitCost if user has capability
+  const validatedCost = canEditCost && unitCost !== null && unitCost !== undefined && unitCost > 0
     ? String(unitCost)
     : null;
 
@@ -815,8 +862,15 @@ export async function updateDeliveryPurchaseCost(params: {
 }) {
   const { userId, actorId, actorName, actorRole, ledgerEntryId, unitCost } = params;
 
-  if (actorRole !== "OWNER") {
-    throw new Error("Only the shop owner can record or edit purchase costs.");
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "PURCHASE_COST_EDIT");
+    } else if (actorRole !== "OWNER") {
+      throw new Error("Only authorized personnel can record or edit purchase costs.");
+    }
+  } else if (actorRole !== "OWNER") {
+    throw new Error("Only authorized personnel can record or edit purchase costs.");
   }
 
   if (unitCost <= 0) {
@@ -880,6 +934,13 @@ export async function recordStockCount(params: {
     physicalCount,
     notes,
   } = params;
+
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "STOCK_COUNT");
+    }
+  }
 
   const [prod] = await db
     .select({ id: products.id, name: products.name, unit: products.unit })
@@ -1024,6 +1085,13 @@ export async function recordCustomerPayment(params: {
     throw new Error("Enter a payment amount greater than 0.");
   }
 
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "PAYMENT_CREATE");
+    }
+  }
+
   const [cust] = await db
     .select()
     .from(customers)
@@ -1106,6 +1174,13 @@ export async function recordExpense(params: {
     throw new Error("Enter an expense amount greater than 0.");
   }
 
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "EXPENSE_CREATE");
+    }
+  }
+
   const [newExp] = await db
     .insert(expenses)
     .values({
@@ -1150,6 +1225,13 @@ export async function recordDailyCashCheck(params: {
   notes?: string;
 }): Promise<DailyCashCheck> {
   const { userId, actorId, actorName, actorRole, checkDate, actualCash, notes } = params;
+
+  if (actorId) {
+    const authCtx = await getAuthContextForUser(actorId, actorRole);
+    if (authCtx) {
+      assertCan(authCtx, "CASH_CHECK_CREATE");
+    }
+  }
 
   const startOfDay = new Date(`${checkDate}T00:00:00.000Z`);
   const endOfDay = new Date(`${checkDate}T23:59:59.999Z`);
@@ -1505,8 +1587,12 @@ export async function getBusinessPeriodReport(
     priorTotalDebt: priorDebt,
   });
 
-  // If userRole is STAFF, commercial sensitivity rules mandate suppressing profit and purchase prices
-  if (userRole === "STAFF") {
+  // Capability-based commercial sensitivity redaction
+  const authCtx = await getAuthContextForUser(userId, userRole);
+  const canSeePurchaseCost = authCtx ? can(authCtx, "PURCHASE_COST_VIEW") : userRole === "OWNER";
+  const canSeeReports = authCtx ? can(authCtx, "REPORT_VIEW") : true;
+
+  if (!canSeePurchaseCost || !canSeeReports) {
     metrics.costOfGoodsSold = 0;
     metrics.restockExpenditure = 0;
     metrics.totalMoneySpent = metrics.operatingExpenses;
@@ -1524,7 +1610,7 @@ export async function getBusinessPeriodReport(
 
   const recentActivities = rawActivities.map((a) => ({
     ...a,
-    unitCost: userRole === "OWNER" ? a.unitCost : null,
+    unitCost: canSeePurchaseCost ? a.unitCost : null,
   }));
 
   return {
@@ -1539,7 +1625,15 @@ export async function getBusinessPeriodReport(
 // 11. DATA EXPORT (OWNER ONLY)
 // ==========================================
 
-export async function exportBusinessData(userId: number) {
+export async function exportBusinessData(
+  userId: number,
+  actorId?: number,
+  actorRole?: "OWNER" | "STAFF"
+) {
+  const authCtx = await getAuthContextForUser(actorId || userId, actorRole);
+  if (authCtx) {
+    assertCan(authCtx, "EXPORT_DATA");
+  }
   const [
     allUsers,
     allProducts,
@@ -1738,13 +1832,21 @@ export async function addOrUpdateBuyingListItem(params: {
   return item;
 }
 
-export async function toggleBuyingListItem(userId: number, id: number, isCompleted: boolean) {
+export async function toggleBuyingListItem(
+  userId: number,
+  id: number,
+  isCompleted?: boolean,
+  quantityToBuy?: number
+) {
+  const setFields: any = { updatedAt: new Date() };
+  if (isCompleted !== undefined) setFields.isCompleted = isCompleted;
+  if (quantityToBuy !== undefined && Number(quantityToBuy) > 0) {
+    setFields.quantityToBuy = Number(quantityToBuy);
+  }
+
   const [updated] = await db
     .update(buyingListItems)
-    .set({
-      isCompleted,
-      updatedAt: new Date(),
-    })
+    .set(setFields)
     .where(and(eq(buyingListItems.id, id), eq(buyingListItems.userId, userId)))
     .returning();
   return updated;

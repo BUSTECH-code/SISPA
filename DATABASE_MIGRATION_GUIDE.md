@@ -27,6 +27,12 @@ All version-controlled migrations are in `src/db/migrations/`:
   10. `audit_logs` — Immutable business activity trail with actor attribution and human-readable descriptions
   11. `daily_cash_checks` — End-of-day cash reconciliation logs
 * `0001_rls_policies.sql`: Ready-to-run Row Level Security (RLS) policies for Supabase.
+* `0002_commercial_tenants_and_invitations.sql`: Commercial multi-tenant architecture & lifecycle:
+  12. `businesses` — Dedicated commercial business entity with subscription plan and status
+  13. `business_memberships` — User-to-business membership records with roles (`OWNER`, `STAFF`), status (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`), and granular delegated capabilities
+  14. `staff_invitations` — Cryptographic, single-use, expiring invitation tokens
+  15. `business_subscriptions` — Subscription tracking and plan management
+  16. `billing_transactions` — Audit trail for billing and payments
 
 ---
 

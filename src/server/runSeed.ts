@@ -37,6 +37,22 @@ async function main() {
     console.log(`Created demo staff: ${staffEmail} (password: password123)`);
   }
 
+  // 3. Check or create Platform Admin demo user
+  const adminEmail = "admin@sispa.io";
+  let [adminUser] = await db.select().from(users).where(eq(users.email, adminEmail)).limit(1);
+
+  if (!adminUser) {
+    adminUser = await createUser({
+      email: adminEmail,
+      password: "password123",
+      fullName: "SISPA Operations Platform Admin",
+      role: "OWNER",
+      businessName: "SISPA Platform Operations",
+      isPlatformAdmin: true,
+    });
+    console.log(`Created demo platform admin: ${adminEmail} (password: password123)`);
+  }
+
   await seedBuildingMaterialDemoData(demoUser.id);
   console.log("Seeding complete for demo shop!");
   process.exit(0);
