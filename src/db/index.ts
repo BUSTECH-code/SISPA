@@ -20,6 +20,9 @@ const globalForDb = globalThis as typeof globalThis & {
 function isPostgresReachable(): boolean {
   if (!databaseUrl) return false;
   if (databaseUrl.includes("127.0.0.1:5432") || databaseUrl.includes("localhost:5432")) {
+    if (process.platform === "win32") {
+      return false;
+    }
     try {
       const cp = require("child_process");
       cp.execSync("timeout 0.2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/5432' 2>/dev/null");

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSession } from "@/server/authService";
+import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/server/authService";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
@@ -28,9 +30,9 @@ export async function POST(request: Request) {
       );
     }
 
-    await createSession(user.id);
+    const session = await createSession(user.id);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       user: {
         id: user.id,
@@ -41,6 +43,18 @@ export async function POST(request: Request) {
         isPlatformAdmin: Boolean(user.isPlatformAdmin),
       },
     });
+
+    response.cookies.set({
+      name: SESSION_COOKIE_NAME,
+      value: session.id,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: SESSION_DURATION_MS / 1000,
+      path: "/",
+    });
+
+    return response;
   } catch (error) {
     console.error("[DemoLogin] Error:", error);
     return NextResponse.json(
