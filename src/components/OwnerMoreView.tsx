@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useStock } from "@/context/StockContext";
 import {
   FileText,
@@ -17,9 +17,12 @@ import {
   UserCheck,
   Building2,
   Clock,
+  Headphones,
 } from "lucide-react";
+import { OwnerSupportRequestModal } from "./OwnerSupportRequestModal";
 
 export function OwnerMoreView() {
+  const [supportModalOpen, setSupportModalOpen] = useState(false);
   const {
     user,
     setActiveTab,
@@ -261,8 +264,30 @@ export function OwnerMoreView() {
             </div>
             <ChevronRight className="h-5 w-5 text-slate-600 group-hover:translate-x-1 group-hover:text-slate-900 transition-all" />
           </button>
+
+          {/* Request Platform Support */}
+          <button
+            onClick={() => setSupportModalOpen(true)}
+            className="flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/40 p-4 text-left shadow-2xs hover:border-amber-400 hover:bg-amber-50 transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500 text-slate-950 font-black">
+                <Headphones className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">Request Platform Support</h3>
+                <p className="text-xs text-slate-600">Authorize temporary, scoped technical assistance</p>
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-amber-700 group-hover:translate-x-1 transition-all" />
+          </button>
         </div>
       </div>
+
+      <OwnerSupportRequestModal
+        isOpen={supportModalOpen}
+        onClose={() => setSupportModalOpen(false)}
+      />
     </div>
   );
 }

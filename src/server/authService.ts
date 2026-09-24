@@ -1761,6 +1761,8 @@ export async function updatePlatformSettingsAdmin(params: {
     actorName: admin[0].fullName,
     actorRole: "PLATFORM_ADMIN",
     eventType: "PLATFORM_SETTINGS_CHANGED",
+    entityType: "PLATFORM_SETTINGS",
+    entityId: updated.id,
     description: `Platform Admin updated global settings: MaintenanceMode=${updated.maintenanceMode}, DefaultTrial=${updated.defaultTrialDays}d, GracePeriod=${updated.gracePeriodDays}d`,
   });
 

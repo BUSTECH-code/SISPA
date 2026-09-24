@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, createSupportRequest, revokeSupportAccessGrant } from "@/server/authService";
+import { getCurrentUser, resolveBusinessContext, createSupportRequest, revokeSupportAccessGrant } from "@/server/authService";
 import { db } from "@/db";
 import { supportAccessLogs, businesses } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { businessId, reason, scope, requestedDurationMinutes } = body;
 
-    const targetBizId = businessId ? Number(businessId) : user.activeBusinessId;
+    const { businessId: ctxBizId } = resolveBusinessContext(user);
+    const targetBizId = businessId ? Number(businessId) : ctxBizId;
     if (!targetBizId) {
       return NextResponse.json(
         { success: false, error: "No active business context found." },
@@ -68,7 +69,7 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "UNAUTHORIZED" }, { status: 401 });
     }
 
-    const targetBizId = user.activeBusinessId;
+    const { businessId: targetBizId } = resolveBusinessContext(user);
     if (!targetBizId) {
       return NextResponse.json({ success: true, data: [] });
     }
