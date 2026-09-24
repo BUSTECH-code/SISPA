@@ -7,6 +7,11 @@ import {
   staffInvitations,
   businessSubscriptions,
   supportAccessLogs,
+  platformSettings,
+  products,
+  stockLedgerEntries,
+  customers,
+  auditLogs,
   type User,
   type Session,
   type Business,
@@ -251,6 +256,7 @@ export interface StaffInvitationResponse {
   inviteeEmail: string | null;
   role: string;
   status: string;
+  customCapabilities: string[];
   expiresAt: Date;
   businessName: string;
 }
@@ -263,9 +269,17 @@ export async function createStaffInvitation(params: {
   inviteeName: string;
   inviteeEmail?: string;
   role?: "STAFF";
+  customCapabilities?: string[];
   origin?: string;
 }): Promise<StaffInvitationResponse> {
-  const { ownerUser, inviteeName, inviteeEmail, role = "STAFF", origin = "" } = params;
+  const {
+    ownerUser,
+    inviteeName,
+    inviteeEmail,
+    role = "STAFF",
+    customCapabilities = ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"],
+    origin = "",
+  } = params;
 
   if (ownerUser.role !== "OWNER") {
     throw new Error("FORBIDDEN_STAFF_MANAGE");
@@ -284,6 +298,7 @@ export async function createStaffInvitation(params: {
       inviteeName: inviteeName.trim(),
       role,
       invitedByUserId: ownerUser.id,
+      customCapabilities: JSON.stringify(customCapabilities),
       status: "PENDING",
       expiresAt,
     })
@@ -296,10 +311,10 @@ export async function createStaffInvitation(params: {
     actorName: ownerUser.fullName,
     actorRole: "OWNER",
     eventType: "STAFF_INVITED",
-    description: `Generated staff invitation for ${inviteeName}${inviteeEmail ? ` (${inviteeEmail})` : ""}`,
+    description: `Generated staff invitation for ${inviteeName}${inviteeEmail ? ` (${inviteeEmail})` : ""} with capabilities: [${customCapabilities.join(", ")}]`,
     entityType: "staff_invitations",
     entityId: invitation.id,
-    afterState: { inviteeName, inviteeEmail, expiresAt },
+    afterState: { inviteeName, inviteeEmail, customCapabilities, expiresAt },
   });
 
   const baseUrl = origin || (process.env.NEXT_PUBLIC_APP_URL || "");
@@ -313,6 +328,7 @@ export async function createStaffInvitation(params: {
     inviteeEmail: invitation.inviteeEmail,
     role: invitation.role,
     status: invitation.status,
+    customCapabilities,
     expiresAt: invitation.expiresAt,
     businessName: business.name,
   };
@@ -453,7 +469,9 @@ export async function acceptStaffInvitation(params: {
     businessOwnerId: business.ownerUserId,
   });
 
-  // Ensure membership is created and set to ACTIVE
+  // Ensure membership is created and set to ACTIVE with delegated capabilities
+  const delegatedCapabilities = invitation.customCapabilities || JSON.stringify(["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"]);
+
   await db
     .insert(businessMemberships)
     .values({
@@ -461,13 +479,18 @@ export async function acceptStaffInvitation(params: {
       userId: newUser.id,
       role: "STAFF",
       status: "ACTIVE",
+      customCapabilities: delegatedCapabilities,
       activatedAt: new Date(),
       invitedByUserId: invitation.invitedByUserId,
       invitedAt: invitation.createdAt,
     })
     .onConflictDoUpdate({
       target: [businessMemberships.businessId, businessMemberships.userId],
-      set: { status: "ACTIVE", activatedAt: new Date() },
+      set: {
+        status: "ACTIVE",
+        customCapabilities: delegatedCapabilities,
+        activatedAt: new Date(),
+      },
     });
 
   // Mark invitation accepted
@@ -508,6 +531,7 @@ export interface StaffMemberDetail {
   email: string;
   role: MembershipRole;
   status: MembershipStatus;
+  customCapabilities: string[];
   invitedAt: Date | null;
   activatedAt: Date | null;
   suspendedAt: Date | null;
@@ -516,7 +540,7 @@ export interface StaffMemberDetail {
 }
 
 /**
- * List staff members with comprehensive lifecycle status
+ * List staff members with comprehensive lifecycle status and delegated capabilities
  */
 export async function getStaffMembersWithLifecycle(ownerId: number): Promise<StaffMemberDetail[]> {
   try {
@@ -540,6 +564,7 @@ export async function getStaffMembersWithLifecycle(ownerId: number): Promise<Sta
         email: users.email,
         role: businessMemberships.role,
         status: businessMemberships.status,
+        customCapabilities: businessMemberships.customCapabilities,
         invitedAt: businessMemberships.invitedAt,
         activatedAt: businessMemberships.activatedAt,
         suspendedAt: businessMemberships.suspendedAt,
@@ -551,19 +576,30 @@ export async function getStaffMembersWithLifecycle(ownerId: number): Promise<Sta
       .where(and(eq(businessMemberships.businessId, businessId), eq(businessMemberships.role, "STAFF")))
       .orderBy(desc(users.createdAt));
 
-    return list.map((item) => ({
-      id: item.membershipId,
-      userId: item.userId,
-      fullName: item.fullName,
-      email: item.email,
-      role: item.role as MembershipRole,
-      status: item.status as MembershipStatus,
-      invitedAt: item.invitedAt,
-      activatedAt: item.activatedAt,
-      suspendedAt: item.suspendedAt,
-      deactivatedAt: item.deactivatedAt,
-      createdAt: item.createdAt,
-    }));
+    return list.map((item) => {
+      let parsedCaps: string[] = ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
+      if (item.customCapabilities) {
+        try {
+          parsedCaps = JSON.parse(item.customCapabilities);
+        } catch {
+          // fallback to defaults
+        }
+      }
+      return {
+        id: item.membershipId,
+        userId: item.userId,
+        fullName: item.fullName,
+        email: item.email,
+        role: item.role as MembershipRole,
+        status: item.status as MembershipStatus,
+        customCapabilities: parsedCaps,
+        invitedAt: item.invitedAt,
+        activatedAt: item.activatedAt,
+        suspendedAt: item.suspendedAt,
+        deactivatedAt: item.deactivatedAt,
+        createdAt: item.createdAt,
+      };
+    });
   } catch (error) {
     console.error("[SISPA Auth] Error fetching staff with lifecycle:", error);
     // Fallback to legacy users table
@@ -575,6 +611,7 @@ export async function getStaffMembersWithLifecycle(ownerId: number): Promise<Sta
       email: u.email,
       role: "STAFF" as MembershipRole,
       status: (u.isActive ? "ACTIVE" : "SUSPENDED") as MembershipStatus,
+      customCapabilities: ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"],
       invitedAt: null,
       activatedAt: u.createdAt,
       suspendedAt: null,
@@ -677,6 +714,63 @@ export async function updateStaffMembershipStatus(params: {
     oldValue: previousStatus,
     newValue: newStatus,
     reason: reason || null,
+  });
+
+  return true;
+}
+
+/**
+ * Owner updates delegated operational capabilities for a staff member
+ */
+export async function updateStaffCapabilities(params: {
+  ownerUser: User;
+  staffUserId: number;
+  capabilities: string[];
+}): Promise<boolean> {
+  const { ownerUser, staffUserId, capabilities } = params;
+
+  if (ownerUser.role !== "OWNER") {
+    throw new Error("FORBIDDEN_STAFF_MANAGE");
+  }
+
+  const business = await ensureBusinessForOwner(ownerUser);
+
+  const [membership] = await db
+    .select()
+    .from(businessMemberships)
+    .where(and(eq(businessMemberships.businessId, business.id), eq(businessMemberships.userId, staffUserId)))
+    .limit(1);
+
+  if (!membership) {
+    throw new Error("Staff membership record not found.");
+  }
+
+  let oldCapabilities: string[] = [];
+  try {
+    oldCapabilities = membership.customCapabilities ? JSON.parse(membership.customCapabilities) : [];
+  } catch {
+    oldCapabilities = [];
+  }
+
+  await db
+    .update(businessMemberships)
+    .set({
+      customCapabilities: JSON.stringify(capabilities),
+      updatedAt: new Date(),
+    })
+    .where(eq(businessMemberships.id, membership.id));
+
+  await recordSecurityAudit({
+    businessId: business.id,
+    actorId: ownerUser.id,
+    actorName: ownerUser.fullName,
+    actorRole: "OWNER",
+    eventType: "STAFF_CAPABILITIES_UPDATED",
+    description: `Owner ${ownerUser.fullName} updated delegated capabilities for staff member #${staffUserId}: [${capabilities.join(", ")}]`,
+    entityType: "business_memberships",
+    entityId: membership.id,
+    oldValue: JSON.stringify(oldCapabilities),
+    newValue: JSON.stringify(capabilities),
   });
 
   return true;
@@ -1108,6 +1202,7 @@ export async function getPlatformOverview(adminUserId: number) {
       id: users.id,
       email: users.email,
       fullName: users.fullName,
+      phone: users.phone,
       role: users.role,
       isActive: users.isActive,
       businessOwnerId: users.businessOwnerId,
@@ -1115,77 +1210,237 @@ export async function getPlatformOverview(adminUserId: number) {
     })
     .from(users);
 
-  const allGrants = await db.select().from(supportAccessLogs).orderBy(desc(supportAccessLogs.createdAt)).limit(50);
+  const allMemberships = await db.select().from(businessMemberships);
+  const allProducts = await db.select({ id: products.id, userId: products.userId }).from(products);
+  const allLedger = await db.select({ id: stockLedgerEntries.id, userId: stockLedgerEntries.userId }).from(stockLedgerEntries);
+  const allCustomers = await db.select({ id: customers.id, userId: customers.userId }).from(customers);
 
+  const allGrants = await db
+    .select()
+    .from(supportAccessLogs)
+    .orderBy(desc(supportAccessLogs.createdAt))
+    .limit(100);
+
+  const now = new Date();
+
+  // Map businesses with owner details, staff members, and high-level telemetry
   const businessList = allBiz.map((b) => {
     const owner = allUsers.find((u) => u.id === b.ownerUserId);
-    const members = allUsers.filter((u) => u.businessOwnerId === b.ownerUserId || u.id === b.ownerUserId);
-    const activeGrant = allGrants.find(
-      (g) => g.businessId === b.id && !g.revokedAt && new Date(g.expiresAt) > new Date()
-    );
+    const memberships = allMemberships.filter((m) => m.businessId === b.id);
+    const staffMembers = memberships
+      .filter((m) => m.role === "STAFF")
+      .map((m) => {
+        const u = allUsers.find((user) => user.id === m.userId);
+        return {
+          id: m.userId,
+          membershipId: m.id,
+          fullName: u?.fullName || "Staff Member",
+          email: u?.email || "",
+          phone: u?.phone || "",
+          role: m.role,
+          status: m.status,
+          createdAt: m.createdAt,
+        };
+      });
+
+    const activeGrant = allGrants.find((g) => {
+      if (g.businessId !== b.id) return false;
+      const isApproved = g.status === "APPROVED" || (!g.status && !g.revokedAt);
+      const notRevoked = !g.revokedAt;
+      const notExpired = g.expiresAt ? new Date(g.expiresAt) > now : false;
+      return isApproved && notRevoked && notExpired;
+    });
+
+    // Compute high-level operational counts using owner user ID
+    const ownerId = b.ownerUserId || 0;
+    const productCount = allProducts.filter((p) => p.userId === ownerId).length;
+    const ledgerEntriesCount = allLedger.filter((l) => l.userId === ownerId).length;
+    const customerCount = allCustomers.filter((c) => c.userId === ownerId).length;
+
     return {
       id: b.id,
       name: b.name,
       currency: b.currency,
-      state: b.state,
+      state: b.state, // 'ACTIVE' | 'RESTRICTED' | 'SUSPENDED'
       subscriptionPlan: b.subscriptionPlan,
-      subscriptionStatus: b.subscriptionStatus,
+      subscriptionStatus: b.subscriptionStatus, // 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'GRACE_PERIOD' | 'RESTRICTED' | 'SUSPENDED' | 'CANCELLED'
       trialEndsAt: b.trialEndsAt,
       createdAt: b.createdAt,
-      owner: owner ? { id: owner.id, fullName: owner.fullName, email: owner.email } : null,
-      memberCount: members.length,
-      hasActiveSupportGrant: !!activeGrant,
+      owner: owner
+        ? {
+            id: owner.id,
+            fullName: owner.fullName,
+            email: owner.email,
+            phone: owner.phone || "Not provided",
+          }
+        : null,
+      staffMembers,
+      staffCount: staffMembers.length,
+      metrics: {
+        productCount,
+        ledgerEntriesCount,
+        customerCount,
+      },
+      hasActiveSupportGrant: Boolean(activeGrant),
       activeSupportGrant: activeGrant || null,
     };
   });
 
+  // Enrich support requests with business and requesting user info
+  const enrichedSupportGrants = allGrants.map((g) => {
+    const biz = allBiz.find((b) => b.id === g.businessId);
+    const requestingUser = allUsers.find((u) => u.id === g.requestingUserId);
+    const approvingAdmin = allUsers.find((u) => u.id === g.platformAdminUserId);
+
+    let effectiveStatus = g.status || "APPROVED";
+    if (g.revokedAt) {
+      effectiveStatus = "REVOKED";
+    } else if (g.status === "APPROVED" && g.expiresAt && new Date(g.expiresAt) <= now) {
+      effectiveStatus = "EXPIRED";
+    }
+
+    return {
+      id: g.id,
+      businessId: g.businessId,
+      businessName: biz?.name || `Business #${g.businessId}`,
+      requestingUser: requestingUser
+        ? {
+            id: requestingUser.id,
+            fullName: requestingUser.fullName,
+            email: requestingUser.email,
+            phone: requestingUser.phone || "",
+          }
+        : null,
+      approvingAdmin: approvingAdmin
+        ? {
+            id: approvingAdmin.id,
+            fullName: approvingAdmin.fullName,
+          }
+        : null,
+      reason: g.reason,
+      scope: g.scope,
+      requestedDurationMinutes: g.requestedDurationMinutes,
+      status: effectiveStatus,
+      approvedAt: g.approvedAt,
+      expiresAt: g.expiresAt,
+      rejectedAt: g.rejectedAt,
+      rejectionReason: g.rejectionReason,
+      revokedAt: g.revokedAt,
+      revocationReason: g.revocationReason,
+      createdAt: g.createdAt,
+      isActiveNow:
+        effectiveStatus === "APPROVED" &&
+        !g.revokedAt &&
+        Boolean(g.expiresAt && new Date(g.expiresAt) > now),
+    };
+  });
+
+  // Fetch recent platform security audits
+  const recentPlatformAudits = await db
+    .select()
+    .from(auditLogs)
+    .where(
+      or(
+        eq(auditLogs.eventType, "BUSINESS_STATUS_CHANGED"),
+        eq(auditLogs.eventType, "SUBSCRIPTION_STATUS_CHANGED"),
+        eq(auditLogs.eventType, "SUBSCRIPTION_PLAN_CHANGED"),
+        eq(auditLogs.eventType, "SUPPORT_REQUEST_SUBMITTED"),
+        eq(auditLogs.eventType, "SUPPORT_REQUEST_APPROVED"),
+        eq(auditLogs.eventType, "SUPPORT_REQUEST_REJECTED"),
+        eq(auditLogs.eventType, "SUPPORT_ACCESS_REVOKED"),
+        eq(auditLogs.eventType, "PLATFORM_SETTINGS_CHANGED"),
+        eq(auditLogs.actorRole, "PLATFORM_ADMIN")
+      )
+    )
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(30);
+
+  // Platform settings
+  let settings = await db.select().from(platformSettings).limit(1);
+  if (!settings[0]) {
+    const [inserted] = await db
+      .insert(platformSettings)
+      .values({
+        maintenanceMode: false,
+        defaultTrialDays: 14,
+        gracePeriodDays: 7,
+        allowSelfRegistration: true,
+      })
+      .returning();
+    settings = [inserted];
+  }
+
+  // Summary stats
   const totalBusinesses = allBiz.length;
   const activeBusinesses = allBiz.filter((b) => b.state === "ACTIVE").length;
+  const restrictedBusinesses = allBiz.filter((b) => b.state === "RESTRICTED").length;
+  const suspendedBusinesses = allBiz.filter((b) => b.state === "SUSPENDED").length;
+
   const trialSubscriptions = allBiz.filter((b) => b.subscriptionStatus === "TRIAL").length;
   const activeSubscriptions = allBiz.filter((b) => b.subscriptionStatus === "ACTIVE").length;
-  const totalUsersCount = allUsers.length;
-  const totalStaffCount = allUsers.filter((u) => u.role === "STAFF").length;
+  const pastDueSubscriptions = allBiz.filter(
+    (b) => b.subscriptionStatus === "PAST_DUE" || b.subscriptionStatus === "GRACE_PERIOD"
+  ).length;
+
+  const pendingSupportRequests = enrichedSupportGrants.filter(
+    (g) => g.status === "PENDING"
+  ).length;
+  const activeSupportGrants = enrichedSupportGrants.filter((g) => g.isActiveNow).length;
 
   return {
     stats: {
       totalBusinesses,
       activeBusinesses,
+      restrictedBusinesses,
+      suspendedBusinesses,
       trialSubscriptions,
       activeSubscriptions,
-      totalUsersCount,
-      totalStaffCount,
+      pastDueSubscriptions,
+      totalUsersCount: allUsers.length,
+      totalStaffCount: allUsers.filter((u) => u.role === "STAFF").length,
+      pendingSupportRequests,
+      activeSupportGrants,
     },
     businesses: businessList,
-    recentSupportGrants: allGrants,
+    supportGrants: enrichedSupportGrants,
+    recentAudits: recentPlatformAudits,
+    platformSettings: settings[0],
   };
 }
 
 /**
- * Create an explicit, scoped support access grant (Platform Admin only)
+ * Update business operational state (Platform Admin only)
+ * Sets state to 'ACTIVE', 'RESTRICTED', or 'SUSPENDED'
  */
-export async function createSupportAccessGrant(params: {
+export async function updateBusinessStateAdmin(params: {
   adminUserId: number;
   businessId: number;
+  state: "ACTIVE" | "RESTRICTED" | "SUSPENDED";
   reason: string;
-  scope?: "READ_ONLY" | "FULL";
-  durationMinutes?: number;
 }) {
-  const { adminUserId, businessId, reason, scope = "READ_ONLY", durationMinutes = 30 } = params;
+  const { adminUserId, businessId, state, reason } = params;
   const admin = await db.select().from(users).where(eq(users.id, adminUserId)).limit(1);
   if (!admin[0]?.isPlatformAdmin) {
     throw new Error("FORBIDDEN_PLATFORM_ADMIN_ONLY");
   }
 
-  const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
-  const [grant] = await db
-    .insert(supportAccessLogs)
-    .values({
-      businessId,
-      platformAdminUserId: adminUserId,
-      reason: reason.trim(),
-      scope,
-      expiresAt,
+  if (!reason || !reason.trim()) {
+    throw new Error("An explicit justification reason is strictly required for tenant state changes.");
+  }
+
+  const [biz] = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!biz) {
+    throw new Error("Business tenant not found.");
+  }
+
+  const previousState = biz.state;
+  const [updatedBiz] = await db
+    .update(businesses)
+    .set({
+      state,
+      updatedAt: new Date(),
     })
+    .where(eq(businesses.id, businessId))
     .returning();
 
   await recordSecurityAudit({
@@ -1193,62 +1448,30 @@ export async function createSupportAccessGrant(params: {
     actorId: adminUserId,
     actorName: admin[0].fullName,
     actorRole: "PLATFORM_ADMIN",
-    eventType: "SUPPORT_ACCESS_GRANTED",
-    entityType: "SUPPORT_ACCESS",
-    entityId: grant?.id,
-    description: `Platform Admin granted ${scope} support access to business #${businessId} for ${durationMinutes} minutes. Reason: ${reason}`,
-    reason,
+    eventType: "BUSINESS_STATUS_CHANGED",
+    entityType: "BUSINESS",
+    entityId: businessId,
+    oldValue: previousState,
+    newValue: state,
+    description: `Platform Admin changed business "${biz.name}" state from ${previousState} to ${state}. Reason: ${reason.trim()}`,
+    reason: reason.trim(),
   });
 
-  return grant;
+  return updatedBiz;
 }
 
 /**
- * Revoke support access grant (Platform Admin only)
- */
-export async function revokeSupportAccessGrant(params: {
-  adminUserId: number;
-  grantId: number;
-}) {
-  const { adminUserId, grantId } = params;
-  const admin = await db.select().from(users).where(eq(users.id, adminUserId)).limit(1);
-  if (!admin[0]?.isPlatformAdmin) {
-    throw new Error("FORBIDDEN_PLATFORM_ADMIN_ONLY");
-  }
-
-  const [updated] = await db
-    .update(supportAccessLogs)
-    .set({ revokedAt: new Date() })
-    .where(eq(supportAccessLogs.id, grantId))
-    .returning();
-
-  if (updated) {
-    await recordSecurityAudit({
-      businessId: updated.businessId,
-      actorId: adminUserId,
-      actorName: admin[0].fullName,
-      actorRole: "PLATFORM_ADMIN",
-      eventType: "SUPPORT_ACCESS_REVOKED",
-      entityType: "SUPPORT_ACCESS",
-      entityId: grantId,
-      description: `Platform Admin revoked support access grant #${grantId} for business #${updated.businessId}.`,
-    });
-  }
-
-  return updated;
-}
-
-/**
- * Update business subscription state from Platform Admin Console
+ * Update business subscription state (Platform Admin only)
  */
 export async function updateBusinessSubscriptionAdmin(params: {
   adminUserId: number;
   businessId: number;
-  plan?: "TRIAL" | "STANDARD" | "PRO" | "ENTERPRISE";
+  plan?: "TRIAL" | "STANDARD" | "GROWTH" | "ENTERPRISE";
   status?: "TRIAL" | "ACTIVE" | "PAST_DUE" | "GRACE_PERIOD" | "RESTRICTED" | "SUSPENDED" | "CANCELLED";
   extendTrialDays?: number;
+  reason?: string;
 }) {
-  const { adminUserId, businessId, plan, status, extendTrialDays } = params;
+  const { adminUserId, businessId, plan, status, extendTrialDays, reason = "Platform admin administrative update" } = params;
   const admin = await db.select().from(users).where(eq(users.id, adminUserId)).limit(1);
   if (!admin[0]?.isPlatformAdmin) {
     throw new Error("FORBIDDEN_PLATFORM_ADMIN_ONLY");
@@ -1258,6 +1481,9 @@ export async function updateBusinessSubscriptionAdmin(params: {
   if (!biz) {
     throw new Error("Business not found.");
   }
+
+  const previousPlan = biz.subscriptionPlan;
+  const previousStatus = biz.subscriptionStatus;
 
   const updateFields: any = { updatedAt: new Date() };
   if (plan) updateFields.subscriptionPlan = plan;
@@ -1281,10 +1507,264 @@ export async function updateBusinessSubscriptionAdmin(params: {
     eventType: "SUBSCRIPTION_STATUS_CHANGED",
     entityType: "SUBSCRIPTION",
     entityId: businessId,
-    description: `Platform Admin updated subscription for business "${biz.name}": Plan=${plan || biz.subscriptionPlan}, Status=${status || biz.subscriptionStatus}.`,
+    oldValue: `${previousPlan} (${previousStatus})`,
+    newValue: `${plan || previousPlan} (${status || previousStatus})`,
+    description: `Platform Admin updated subscription for business "${biz.name}": Plan=${plan || biz.subscriptionPlan}, Status=${status || biz.subscriptionStatus}${extendTrialDays ? `, Trial extended by ${extendTrialDays} days` : ""}. Reason: ${reason}`,
+    reason,
   });
 
   return updatedBiz;
+}
+
+/**
+ * Owner initiates a formal support request
+ */
+export async function createSupportRequest(params: {
+  requestingUserId: number;
+  businessId: number;
+  reason: string;
+  scope: "ACCOUNT_WHATSAPP" | "CATALOG_DIAGNOSTICS" | "DEBT_RECONCILIATION" | "SYSTEM_CONFIG" | "READ_ONLY";
+  requestedDurationMinutes?: number;
+}) {
+  const { requestingUserId, businessId, reason, scope, requestedDurationMinutes = 30 } = params;
+
+  if (!reason || !reason.trim()) {
+    throw new Error("An explicit explanation of the issue requiring support is required.");
+  }
+
+  const userRecord = await db.select().from(users).where(eq(users.id, requestingUserId)).limit(1);
+  if (!userRecord[0]) {
+    throw new Error("Requesting user not found.");
+  }
+
+  const biz = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!biz[0]) {
+    throw new Error("Business not found.");
+  }
+
+  const [request] = await db
+    .insert(supportAccessLogs)
+    .values({
+      businessId,
+      requestingUserId,
+      reason: reason.trim(),
+      scope,
+      requestedDurationMinutes,
+      status: "PENDING",
+    })
+    .returning();
+
+  await recordSecurityAudit({
+    businessId,
+    actorId: requestingUserId,
+    actorName: userRecord[0].fullName,
+    actorRole: "OWNER",
+    eventType: "SUPPORT_REQUEST_SUBMITTED",
+    entityType: "SUPPORT_ACCESS",
+    entityId: request.id,
+    description: `Business Owner ${userRecord[0].fullName} requested ${requestedDurationMinutes}-minute ${scope} support access. Reason: ${reason.trim()}`,
+    reason: reason.trim(),
+  });
+
+  return request;
+}
+
+/**
+ * Platform Admin approves a pending support request
+ */
+export async function approveSupportRequest(params: {
+  adminUserId: number;
+  grantId: number;
+}) {
+  const { adminUserId, grantId } = params;
+  const admin = await db.select().from(users).where(eq(users.id, adminUserId)).limit(1);
+  if (!admin[0]?.isPlatformAdmin) {
+    throw new Error("FORBIDDEN_PLATFORM_ADMIN_ONLY");
+  }
+
+  const [grant] = await db.select().from(supportAccessLogs).where(eq(supportAccessLogs.id, grantId)).limit(1);
+  if (!grant) {
+    throw new Error("Support request not found.");
+  }
+
+  if (grant.status !== "PENDING") {
+    throw new Error(`Cannot approve request with current status: ${grant.status}`);
+  }
+
+  const now = new Date();
+  const duration = grant.requestedDurationMinutes || 30;
+  const expiresAt = new Date(now.getTime() + duration * 60 * 1000);
+
+  const [updated] = await db
+    .update(supportAccessLogs)
+    .set({
+      platformAdminUserId: adminUserId,
+      status: "APPROVED",
+      approvedAt: now,
+      expiresAt,
+    })
+    .where(eq(supportAccessLogs.id, grantId))
+    .returning();
+
+  await recordSecurityAudit({
+    businessId: grant.businessId,
+    actorId: adminUserId,
+    actorName: admin[0].fullName,
+    actorRole: "PLATFORM_ADMIN",
+    eventType: "SUPPORT_REQUEST_APPROVED",
+    entityType: "SUPPORT_ACCESS",
+    entityId: grantId,
+    description: `Platform Admin ${admin[0].fullName} approved support grant #${grantId} for business #${grant.businessId}. Scope: ${grant.scope}, Active for ${duration} minutes.`,
+    reason: grant.reason,
+  });
+
+  return updated;
+}
+
+/**
+ * Platform Admin rejects a pending support request
+ */
+export async function rejectSupportRequest(params: {
+  adminUserId: number;
+  grantId: number;
+  rejectionReason: string;
+}) {
+  const { adminUserId, grantId, rejectionReason } = params;
+  const admin = await db.select().from(users).where(eq(users.id, adminUserId)).limit(1);
+  if (!admin[0]?.isPlatformAdmin) {
+    throw new Error("FORBIDDEN_PLATFORM_ADMIN_ONLY");
+  }
+
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new Error("A rejection reason is strictly required.");
+  }
+
+  const [grant] = await db.select().from(supportAccessLogs).where(eq(supportAccessLogs.id, grantId)).limit(1);
+  if (!grant) {
+    throw new Error("Support request not found.");
+  }
+
+  const [updated] = await db
+    .update(supportAccessLogs)
+    .set({
+      platformAdminUserId: adminUserId,
+      status: "REJECTED",
+      rejectedAt: new Date(),
+      rejectionReason: rejectionReason.trim(),
+    })
+    .where(eq(supportAccessLogs.id, grantId))
+    .returning();
+
+  await recordSecurityAudit({
+    businessId: grant.businessId,
+    actorId: adminUserId,
+    actorName: admin[0].fullName,
+    actorRole: "PLATFORM_ADMIN",
+    eventType: "SUPPORT_REQUEST_REJECTED",
+    entityType: "SUPPORT_ACCESS",
+    entityId: grantId,
+    description: `Platform Admin ${admin[0].fullName} rejected support request #${grantId} for business #${grant.businessId}. Reason: ${rejectionReason.trim()}`,
+    reason: rejectionReason.trim(),
+  });
+
+  return updated;
+}
+
+/**
+ * Revoke an active support grant (Platform Admin or Owner)
+ */
+export async function revokeSupportAccessGrant(params: {
+  actorUserId: number;
+  grantId: number;
+  revocationReason?: string;
+}) {
+  const { actorUserId, grantId, revocationReason = "Revoked by operator" } = params;
+  const actor = await db.select().from(users).where(eq(users.id, actorUserId)).limit(1);
+  if (!actor[0]) {
+    throw new Error("User not found.");
+  }
+
+  const [grant] = await db.select().from(supportAccessLogs).where(eq(supportAccessLogs.id, grantId)).limit(1);
+  if (!grant) {
+    throw new Error("Support grant not found.");
+  }
+
+  const [updated] = await db
+    .update(supportAccessLogs)
+    .set({
+      status: "REVOKED",
+      revokedAt: new Date(),
+      revocationReason: revocationReason.trim(),
+    })
+    .where(eq(supportAccessLogs.id, grantId))
+    .returning();
+
+  await recordSecurityAudit({
+    businessId: grant.businessId,
+    actorId: actorUserId,
+    actorName: actor[0].fullName,
+    actorRole: actor[0].isPlatformAdmin ? "PLATFORM_ADMIN" : "OWNER",
+    eventType: "SUPPORT_ACCESS_REVOKED",
+    entityType: "SUPPORT_ACCESS",
+    entityId: grantId,
+    description: `Support grant #${grantId} for business #${grant.businessId} revoked by ${actor[0].fullName}. Reason: ${revocationReason}`,
+    reason: revocationReason,
+  });
+
+  return updated;
+}
+
+/**
+ * Update Platform Settings (Platform Admin only)
+ */
+export async function updatePlatformSettingsAdmin(params: {
+  adminUserId: number;
+  maintenanceMode?: boolean;
+  maintenanceNotice?: string;
+  defaultTrialDays?: number;
+  gracePeriodDays?: number;
+  allowSelfRegistration?: boolean;
+}) {
+  const { adminUserId, ...settingsFields } = params;
+  const admin = await db.select().from(users).where(eq(users.id, adminUserId)).limit(1);
+  if (!admin[0]?.isPlatformAdmin) {
+    throw new Error("FORBIDDEN_PLATFORM_ADMIN_ONLY");
+  }
+
+  let existing = await db.select().from(platformSettings).limit(1);
+  let updated;
+  if (existing[0]) {
+    [updated] = await db
+      .update(platformSettings)
+      .set({
+        ...settingsFields,
+        updatedAt: new Date(),
+      })
+      .where(eq(platformSettings.id, existing[0].id))
+      .returning();
+  } else {
+    [updated] = await db
+      .insert(platformSettings)
+      .values({
+        maintenanceMode: settingsFields.maintenanceMode ?? false,
+        maintenanceNotice: settingsFields.maintenanceNotice || null,
+        defaultTrialDays: settingsFields.defaultTrialDays ?? 14,
+        gracePeriodDays: settingsFields.gracePeriodDays ?? 7,
+        allowSelfRegistration: settingsFields.allowSelfRegistration ?? true,
+      })
+      .returning();
+  }
+
+  await recordSecurityAudit({
+    businessId: 0,
+    actorId: adminUserId,
+    actorName: admin[0].fullName,
+    actorRole: "PLATFORM_ADMIN",
+    eventType: "PLATFORM_SETTINGS_CHANGED",
+    description: `Platform Admin updated global settings: MaintenanceMode=${updated.maintenanceMode}, DefaultTrial=${updated.defaultTrialDays}d, GracePeriod=${updated.gracePeriodDays}d`,
+  });
+
+  return updated;
 }
 
 export { SESSION_COOKIE_NAME, SESSION_DURATION_MS };

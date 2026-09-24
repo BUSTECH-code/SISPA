@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const user = await requireAuth();
     const { businessId, userRole } = resolveBusinessContext(user);
-    const products = await getAllEnrichedProducts(businessId, userRole);
+    const products = await getAllEnrichedProducts(businessId, userRole, user.id);
 
     const runningLowCount = products.filter((p) => p.intelligence.status === "RUNNING_LOW").length;
     const checkSoonCount = products.filter((p) => p.intelligence.status === "CHECK_SOON").length;

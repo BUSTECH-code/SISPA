@@ -6,6 +6,7 @@ import {
   createStaffInvitation,
   revokeStaffInvitation,
   updateStaffMembershipStatus,
+  updateStaffCapabilities,
   transferBusinessOwnership,
   createStaffMember,
   ensureBusinessForOwner,
@@ -96,10 +97,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Please provide the name of the staff member to invite." }, { status: 400 });
     }
 
+    const { customCapabilities } = body;
+
     const invitation = await createStaffInvitation({
       ownerUser: owner,
       inviteeName: fullName.trim(),
       inviteeEmail: email ? email.trim() : undefined,
+      customCapabilities: Array.isArray(customCapabilities) ? customCapabilities : undefined,
       origin: origin || request.headers.get("origin") || undefined,
     });
 
@@ -127,7 +131,7 @@ export async function PATCH(request: Request) {
   try {
     const owner = await requireOwner();
     const body = await request.json();
-    const { action, staffUserId, newStatus, reason, newOwnerUserId, passwordConfirmation } = body;
+    const { action, staffUserId, newStatus, reason, newOwnerUserId, passwordConfirmation, capabilities } = body;
 
     // 1. Staff Lifecycle Status Change (ACTIVE, SUSPENDED, DEACTIVATED)
     if (action === "UPDATE_STATUS") {
@@ -145,6 +149,24 @@ export async function PATCH(request: Request) {
       return NextResponse.json({
         success: true,
         message: `Staff member status updated to ${newStatus}.`,
+      });
+    }
+
+    // 2. Staff Capability Delegation Update
+    if (action === "UPDATE_CAPABILITIES") {
+      if (!staffUserId || !Array.isArray(capabilities)) {
+        return NextResponse.json({ success: false, error: "Missing staffUserId or capabilities list." }, { status: 400 });
+      }
+
+      await updateStaffCapabilities({
+        ownerUser: owner,
+        staffUserId: Number(staffUserId),
+        capabilities,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Staff capabilities updated successfully.",
       });
     }
 

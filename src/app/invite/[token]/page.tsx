@@ -15,6 +15,7 @@ export default function InviteAcceptancePage() {
     inviteeName: string;
     inviteeEmail: string | null;
     role: string;
+    capabilities?: string[];
   } | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -141,6 +142,37 @@ export default function InviteAcceptancePage() {
           <h1 className="text-xl font-bold text-slate-900">Join {invitationData.businessName}</h1>
           <p className="text-xs text-slate-500">
             You have been invited as a Staff Operator on SISPA
+          </p>
+        </div>
+
+        {/* Delegated Capabilities Preview */}
+        <div className="rounded-2xl bg-purple-50/70 p-3.5 border border-purple-200">
+          <div className="text-[11px] font-bold text-purple-950 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <ShieldCheck className="h-4 w-4 text-purple-700" />
+            <span>Delegated Operational Capabilities</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 text-[11px] font-semibold text-purple-900">
+            {(invitationData.capabilities && invitationData.capabilities.length > 0
+              ? invitationData.capabilities
+              : ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"]
+            ).map((cap) => {
+              const labels: Record<string, string> = {
+                CAN_SELL: "✓ Sell Goods",
+                CAN_RECEIVE: "✓ Receive Deliveries",
+                CAN_COLLECT: "✓ Collect Payments",
+                CAN_COUNT: "✓ Count Stock",
+                CAN_CHANGE_PRICE: "✓ Change Prices",
+                CAN_CORRECT_TRANSACTIONS: "✓ Correct Sales",
+              };
+              return (
+                <div key={cap} className="rounded-lg bg-white/80 px-2 py-1 border border-purple-100">
+                  {labels[cap] || cap}
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[10px] text-purple-700">
+            Confidential commercial margins & purchase costs remain strictly owner-private.
           </p>
         </div>
 

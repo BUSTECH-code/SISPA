@@ -16,6 +16,7 @@ import {
   User as UserIcon,
   Copy,
   ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
 
 interface ChatMessage {
@@ -28,7 +29,8 @@ interface ChatMessage {
 }
 
 export function WhatsAppAssistantView() {
-  const { user, refreshData } = useStock();
+  const { user, refreshData, setActiveTab } = useStock();
+
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -49,6 +51,28 @@ export function WhatsAppAssistantView() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  if (user?.isPlatformAdmin) {
+    return (
+      <div className="mx-auto max-w-lg py-12 px-4 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-100 text-purple-800">
+          <ShieldAlert className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 text-lg font-black text-slate-900">
+          Business Environment Only
+        </h2>
+        <p className="mt-2 text-xs text-slate-600 leading-relaxed">
+          The WhatsApp Assistant is a business operational interface for shop owners and clerks. Platform administrators manage the SaaS fleet from the platform console.
+        </p>
+        <button
+          onClick={() => setActiveTab("PLATFORM_ADMIN")}
+          className="mt-5 inline-flex items-center gap-2 rounded-xl bg-purple-900 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-purple-800"
+        >
+          <span>Return to Platform Console</span>
+        </button>
+      </div>
+    );
+  }
 
   const handleSend = async (textToSend?: string) => {
     const query = (textToSend || input).trim();

@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { getAllExpenses, recordExpense } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireAuth, resolveBusinessContext, getAuthContextForUser } from "@/server/authService";
+import { assertCan } from "@/server/authorization";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const user = await requireAuth();
-    const { businessId } = resolveBusinessContext(user);
+    const { businessId, userRole } = resolveBusinessContext(user);
+
+    const authCtx = await getAuthContextForUser(user.id, userRole);
+    assertCan(authCtx, "EXPENSE_VIEW", { businessId });
+
     const list = await getAllExpenses(businessId);
     const totalExpenses = list.reduce((sum, e) => sum + Number(e.amount), 0);
 
@@ -21,6 +26,12 @@ export async function GET() {
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
+    }
+    if (error.message?.startsWith("FORBIDDEN") || error.message?.startsWith("STAFF")) {
+      return NextResponse.json(
+        { success: false, error: "Shop expense records are restricted to the business owner." },
+        { status: 403 }
+      );
     }
     console.error("Failed to load expenses:", error);
     return NextResponse.json(

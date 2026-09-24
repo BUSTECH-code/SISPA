@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, destroySession, SESSION_COOKIE_NAME } from "@/server/authService";
+import { getCurrentUser, destroySession, SESSION_COOKIE_NAME, getAuthContextForUser } from "@/server/authService";
 import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,12 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ success: true, data: { user: null } });
     }
+
+    const userRole = user.role === "STAFF" ? "STAFF" : user.role === "OWNER" ? "OWNER" : undefined;
+    const authCtx = await getAuthContextForUser(user.id, userRole);
+    const delegatedCapabilities =
+      authCtx?.membership?.customCapabilities ||
+      (user.role === "STAFF" ? ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"] : []);
 
     return NextResponse.json({
       success: true,
@@ -22,6 +28,7 @@ export async function GET() {
           businessName: user.businessName,
           businessOwnerId: user.businessOwnerId,
           isPlatformAdmin: !!user.isPlatformAdmin,
+          delegatedCapabilities,
         },
       },
     });

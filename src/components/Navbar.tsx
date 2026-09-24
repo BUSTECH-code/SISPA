@@ -1,21 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useStock } from "@/context/StockContext";
 import {
   PackagePlus,
   RefreshCw,
-  Database,
   Store,
-  User,
   LogOut,
   LogIn,
-  MessageSquare,
-  History,
-  Receipt,
   ShieldCheck,
   ShieldAlert,
-  Building,
+  Boxes,
+  ShoppingCart,
+  CreditCard,
+  MoreHorizontal,
+  History,
 } from "lucide-react";
 
 export function Navbar() {
@@ -24,25 +23,18 @@ export function Navbar() {
     isAuthenticated,
     isOwner,
     counts,
+    debtorsCount,
+    buyingList,
     activeTab,
     setActiveTab,
     openAddProduct,
     openAuthModal,
     logout,
-    resetWithDemoData,
     isLoading,
     refreshData,
   } = useStock();
 
-  const [isResetting, setIsResetting] = useState(false);
-
-  const handleResetDemo = async () => {
-    if (confirm("Load realistic building-material shop demo inventory (Cement, Rebar, PVC, Paint, etc.)?")) {
-      setIsResetting(true);
-      await resetWithDemoData();
-      setIsResetting(false);
-    }
-  };
+  const pendingBuyingCount = buyingList.filter((i) => !i.isCompleted).length;
 
   return (
     <header className="sticky top-0 z-40 border-b border-amber-900/10 bg-white/95 backdrop-blur-md shadow-xs">
@@ -116,12 +108,6 @@ export function Navbar() {
               <span>{counts.checkSoon} Buy Soon</span>
             </div>
           )}
-          {!user?.isPlatformAdmin && (
-            <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 border border-emerald-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span>{counts.ok} OK</span>
-            </div>
-          )}
           {user?.isPlatformAdmin && (
             <div className="flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-900 border border-purple-200">
               <ShieldAlert className="h-3 w-3 text-purple-700" />
@@ -134,114 +120,141 @@ export function Navbar() {
         <div className="flex items-center gap-2">
           {isAuthenticated ? (
             <>
-              {/* Platform Admin Console Shortcut */}
+              {/* PLATFORM ADMIN DESKTOP NAVIGATION */}
               {user?.isPlatformAdmin && (
-                <button
-                  onClick={() => setActiveTab("PLATFORM_ADMIN")}
-                  title="Platform Operations Console"
-                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-black transition-all ${
-                    activeTab === "PLATFORM_ADMIN"
-                      ? "bg-amber-500 text-slate-950 border-amber-500 shadow-sm"
-                      : "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
-                  }`}
-                >
-                  <ShieldAlert className="h-3.5 w-3.5 text-amber-700" />
-                  <span>Platform Admin</span>
-                </button>
+                <div className="hidden md:flex items-center gap-1.5">
+                  <button
+                    onClick={() => setActiveTab("PLATFORM_ADMIN")}
+                    title="Platform Operations Console"
+                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-black transition-all ${
+                      activeTab === "PLATFORM_ADMIN"
+                        ? "bg-purple-900 text-white border-purple-900 shadow-sm"
+                        : "border-purple-300 bg-purple-50 text-purple-950 hover:bg-purple-100"
+                    }`}
+                  >
+                    <ShieldAlert className="h-3.5 w-3.5 text-purple-400" />
+                    <span>Fleet Ops</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("AUDIT")}
+                    title="Platform Audit Log"
+                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "AUDIT"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <History className="h-3.5 w-3.5" />
+                    <span>Audit</span>
+                  </button>
+                </div>
               )}
 
-              {/* Suppliers shortcut (Shop Owner and Staff) */}
-              {!user?.isPlatformAdmin && (
-                <button
-                  onClick={() => setActiveTab("SUPPLIERS")}
-                  title="Suppliers & Vendors"
-                  className={`hidden md:flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
-                    activeTab === "SUPPLIERS"
-                      ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                      : "border-slate-200 bg-white text-emerald-900 hover:bg-emerald-50"
-                  }`}
-                >
-                  <Building className="h-3.5 w-3.5" />
-                  <span>Suppliers</span>
-                </button>
-              )}
-
-              {/* Expenses shortcut (Owner only) */}
+              {/* BUSINESS OWNER DESKTOP TASK-ORIENTED NAVIGATION */}
               {isOwner && !user?.isPlatformAdmin && (
-                <button
-                  onClick={() => setActiveTab("EXPENSES")}
-                  title="Shop Expenses"
-                  className={`hidden md:flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
-                    activeTab === "EXPENSES"
-                      ? "bg-orange-600 text-white border-orange-600 shadow-sm"
-                      : "border-slate-200 bg-white text-orange-900 hover:bg-orange-50"
-                  }`}
-                >
-                  <Receipt className="h-3.5 w-3.5" />
-                  <span>Expenses</span>
-                </button>
+                <div className="hidden md:flex items-center gap-1">
+                  <button
+                    onClick={() => setActiveTab("HOME")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "HOME"
+                        ? "bg-amber-100 text-amber-900"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>Home</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("BUYING")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "BUYING"
+                        ? "bg-amber-100 text-amber-900"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    <span>Buy</span>
+                    {pendingBuyingCount > 0 && (
+                      <span className="rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-black text-white">
+                        {pendingBuyingCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("DEBT")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "DEBT"
+                        ? "bg-red-50 text-red-900"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <CreditCard className="h-3.5 w-3.5" />
+                    <span>Collect</span>
+                    {debtorsCount > 0 && (
+                      <span className="rounded-full bg-red-600 px-1.5 py-0.2 text-[10px] font-black text-white">
+                        {debtorsCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("STOCK")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "STOCK"
+                        ? "bg-amber-100 text-amber-900"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Boxes className="h-3.5 w-3.5" />
+                    <span>Stock</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("MORE")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "MORE"
+                        ? "bg-slate-900 text-white"
+                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    <span>More</span>
+                  </button>
+                </div>
               )}
 
-              {/* WhatsApp Assistant Quick Button */}
-              <button
-                onClick={() => setActiveTab("WHATSAPP")}
-                title="Open WhatsApp Assistant"
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
-                  activeTab === "WHATSAPP"
-                    ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                    : "border-slate-200 bg-white text-emerald-800 hover:bg-emerald-50"
-                }`}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">WhatsApp</span>
-              </button>
-
-              {/* Activity log toggle for desktop */}
-              <button
-                onClick={() => setActiveTab("ACTIVITY")}
-                title="Activity Log"
-                className={`hidden lg:flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${
-                  activeTab === "ACTIVITY"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <History className="h-3.5 w-3.5" />
-                <span>Activity</span>
-              </button>
-
-              {/* Audit Trail toggle (Owner only) */}
-              {isOwner && !user?.isPlatformAdmin && (
-                <button
-                  onClick={() => setActiveTab("AUDIT")}
-                  title="Audit Trail"
-                  className={`hidden lg:flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${
-                    activeTab === "AUDIT"
-                      ? "bg-purple-900 text-white border-purple-900"
-                      : "border-slate-200 bg-white text-purple-900 hover:bg-purple-50"
-                  }`}
-                >
-                  <ShieldCheck className="h-3.5 w-3.5 text-purple-700" />
-                  <span>Audit</span>
-                </button>
+              {/* STAFF DESKTOP NAVIGATION */}
+              {!isOwner && !user?.isPlatformAdmin && (
+                <div className="hidden md:flex items-center gap-1">
+                  <button
+                    onClick={() => setActiveTab("HOME")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "HOME"
+                        ? "bg-amber-100 text-amber-900"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <span>Counter Desk</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("STOCK")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "STOCK"
+                        ? "bg-amber-100 text-amber-900"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Boxes className="h-3.5 w-3.5" />
+                    <span>Stock</span>
+                  </button>
+                </div>
               )}
 
-              {/* Sample demo stock (Owner only) */}
-              {isOwner && !user?.isPlatformAdmin && (
-                <button
-                  onClick={handleResetDemo}
-                  disabled={isResetting || isLoading}
-                  title="Load sample building-material shop data"
-                  className="hidden xl:flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors disabled:opacity-50"
-                >
-                  <Database className="h-3.5 w-3.5 text-amber-700" />
-                  <span>{isResetting ? "Loading..." : "Sample Stock"}</span>
-                </button>
-              )}
-
+              {/* Refresh data */}
               <button
                 onClick={() => refreshData()}
-                title="Refresh stock status"
+                title="Refresh data"
                 disabled={isLoading}
                 className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors disabled:opacity-50"
               >
@@ -255,10 +268,11 @@ export function Navbar() {
                   className="flex items-center gap-1.5 rounded-xl bg-linear-to-r from-amber-600 to-amber-700 px-3.5 py-2 text-xs sm:text-sm font-bold text-white shadow-sm shadow-amber-600/30 hover:from-amber-700 hover:to-amber-800 transition-all active:scale-95"
                 >
                   <PackagePlus className="h-4 w-4" />
-                  <span>Add Product</span>
+                  <span className="hidden sm:inline">Add Product</span>
                 </button>
               )}
 
+              {/* Sign out */}
               <button
                 onClick={logout}
                 title="Sign out"

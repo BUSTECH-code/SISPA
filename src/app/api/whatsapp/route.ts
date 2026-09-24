@@ -44,6 +44,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Please log in to use the assistant." }, { status: 401 });
     }
 
+    if (user.isPlatformAdmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "WhatsApp Assistant is restricted to business tenant owners and staff operators.",
+        },
+        { status: 403 }
+      );
+    }
+
     const { businessId, userRole, actorId, actorName } = resolveBusinessContext(user);
 
     const body = await request.json();

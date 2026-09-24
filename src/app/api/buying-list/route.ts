@@ -27,7 +27,7 @@ export async function GET() {
       success: true,
       data: {
         items,
-        totalEstimatedOutlay,
+        totalEstimatedOutlay: userRole === "OWNER" ? totalEstimatedOutlay : null,
         pendingCount,
         completedCount,
       },

@@ -460,6 +460,9 @@ export async function updateProduct(params: {
     const authCtx = await getAuthContextForUser(actorId, actorRole);
     if (authCtx) {
       assertCan(authCtx, "PRODUCT_EDIT");
+      if (params.sellingPrice !== undefined && String(params.sellingPrice) !== String(oldProd.sellingPrice)) {
+        assertCan(authCtx, "SELLING_PRICE_CHANGE");
+      }
     }
   }
 
@@ -688,7 +691,7 @@ export async function recordSaleCorrection(params: {
   if (actorId) {
     const authCtx = await getAuthContextForUser(actorId, actorRole);
     if (authCtx) {
-      assertCan(authCtx, "SALE_CREATE");
+      assertCan(authCtx, "SALE_CORRECTION");
     }
   }
 

@@ -14,6 +14,7 @@ export interface UserProfile {
   businessName: string;
   businessOwnerId?: number | null;
   isPlatformAdmin?: boolean;
+  delegatedCapabilities?: string[];
 }
 
 export interface StaffProfile {
@@ -25,6 +26,7 @@ export interface StaffProfile {
   businessName?: string;
   isActive?: boolean;
   status?: "ACTIVE" | "SUSPENDED" | "DEACTIVATED" | string;
+  customCapabilities?: string[];
   invitedAt?: string | null;
   activatedAt?: string | null;
   suspendedAt?: string | null;
@@ -40,6 +42,7 @@ export interface StaffInvitationItem {
   inviteeEmail: string | null;
   role: string;
   status: string;
+  customCapabilities?: string[];
   expiresAt: string;
   createdAt: string;
 }
@@ -140,10 +143,12 @@ interface StockContextType {
   staffMembers: StaffProfile[];
   staffInvitations: StaffInvitationItem[];
   createStaffUser: (fullName: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  createStaffInvitation: (fullName: string, email?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  createStaffInvitation: (fullName: string, email?: string, customCapabilities?: string[]) => Promise<{ success: boolean; data?: any; error?: string }>;
   revokeStaffInvitation: (invitationId: number) => Promise<boolean>;
   updateStaffStatus: (staffUserId: number, newStatus: "ACTIVE" | "SUSPENDED" | "DEACTIVATED", reason?: string) => Promise<{ success: boolean; error?: string }>;
+  updateStaffCapabilities: (staffUserId: number, capabilities: string[]) => Promise<{ success: boolean; error?: string }>;
   transferOwnership: (newOwnerUserId: number, passwordConfirmation: string, reason?: string) => Promise<{ success: boolean; error?: string }>;
+  canPerform: (capKey: "CAN_SELL" | "CAN_RECEIVE" | "CAN_COLLECT" | "CAN_COUNT" | "CAN_CHANGE_PRICE" | "CAN_CORRECT_TRANSACTIONS" | string) => boolean;
 
   // Sale Correction & Delivery Purchase Cost
   recordSaleCorrection: (originalSaleId: number, correctedQuantityDelta: number, correctionReason: string) => Promise<boolean>;
@@ -196,8 +201,8 @@ interface StockContextType {
   isPlatformAdmin: boolean;
 
   // Active view tab
-  activeTab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN";
-  setActiveTab: (tab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN") => void;
+  activeTab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN" | "MORE";
+  setActiveTab: (tab: "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN" | "MORE") => void;
 
   // Actions
   addToBuyingList: (product: EnrichedProduct, customQty?: number) => Promise<boolean>;
@@ -248,7 +253,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
 
   // Navigation and Modals
   const [activeTab, setActiveTab] = useState<
-    "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN"
+    "HOME" | "STOCK" | "DEBT" | "BUYING" | "REPORTS" | "EXPENSES" | "SUPPLIERS" | "ACTIVITY" | "AUDIT" | "WHATSAPP" | "PLATFORM_ADMIN" | "MORE"
   >("HOME");
   const [suppliers, setSuppliers] = useState<StockContextType["suppliers"]>([]);
 
@@ -742,15 +747,23 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const canPerform = (capKey: "CAN_SELL" | "CAN_RECEIVE" | "CAN_COLLECT" | "CAN_COUNT" | "CAN_CHANGE_PRICE" | "CAN_CORRECT_TRANSACTIONS" | string): boolean => {
+    if (!user) return false;
+    if (user.role === "OWNER" || user.isPlatformAdmin) return true;
+    const caps = user.delegatedCapabilities || ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
+    return caps.includes(capKey);
+  };
+
   const createStaffInvitation = async (
     fullName: string,
-    email?: string
+    email?: string,
+    customCapabilities?: string[]
   ): Promise<{ success: boolean; data?: any; error?: string }> => {
     try {
       const res = await fetch("/api/staff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "INVITE", fullName, email }),
+        body: JSON.stringify({ action: "INVITE", fullName, email, customCapabilities }),
       });
       const json = await res.json();
       if (json.success) {
@@ -796,6 +809,27 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: json.error || "Failed to update staff status." };
     } catch {
       return { success: false, error: "Network error updating staff status." };
+    }
+  };
+
+  const updateStaffCapabilities = async (
+    staffUserId: number,
+    capabilities: string[]
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/staff", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "UPDATE_CAPABILITIES", staffUserId, capabilities }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        await refreshData();
+        return { success: true };
+      }
+      return { success: false, error: json.error || "Failed to update staff capabilities." };
+    } catch {
+      return { success: false, error: "Network error updating staff capabilities." };
     }
   };
 
@@ -1009,7 +1043,9 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
         createStaffInvitation,
         revokeStaffInvitation,
         updateStaffStatus,
+        updateStaffCapabilities,
         transferOwnership,
+        canPerform,
         recordSaleCorrection,
         updateDeliveryCost,
         exportBusinessBackup,

@@ -2,13 +2,26 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/server/authService";
+import { createSession, getCurrentUser, SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/server/authService";
+import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
     const { role } = await request.json();
+
+    // Prevent privilege escalation: An active STAFF session cannot escalate to OWNER or PLATFORM_ADMIN
+    const currentUser = await getCurrentUser();
+    if (currentUser && currentUser.role === "STAFF" && (role === "OWNER" || role === "PLATFORM_ADMIN")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Privilege escalation blocked. Staff identities cannot switch to Owner or Admin. Sign out first.",
+        },
+        { status: 403 }
+      );
+    }
 
     let targetEmail = "owner@buildingmaterials.com";
     if (role === "STAFF") {

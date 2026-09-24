@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePlatformAdmin, createSupportAccessGrant, revokeSupportAccessGrant } from "@/server/authService";
+import {
+  requirePlatformAdmin,
+  approveSupportRequest,
+  rejectSupportRequest,
+  revokeSupportAccessGrant,
+  createSupportRequest,
+} from "@/server/authService";
 
 export const dynamic = "force-dynamic";
 
@@ -7,8 +13,48 @@ export async function POST(req: NextRequest) {
   try {
     const admin = await requirePlatformAdmin();
     const body = await req.json();
-    const { businessId, reason, scope, durationMinutes } = body;
+    const { action, grantId, rejectionReason, businessId, reason, scope, durationMinutes } = body;
 
+    // 1. APPROVE pending support request
+    if (action === "APPROVE") {
+      if (!grantId) {
+        return NextResponse.json(
+          { success: false, error: "Grant ID is required to approve." },
+          { status: 400 }
+        );
+      }
+      const updated = await approveSupportRequest({
+        adminUserId: admin.id,
+        grantId: Number(grantId),
+      });
+      return NextResponse.json({
+        success: true,
+        message: `Support grant #${grantId} approved. Scoped access is now active.`,
+        data: updated,
+      });
+    }
+
+    // 2. REJECT pending support request
+    if (action === "REJECT") {
+      if (!grantId || !rejectionReason || !rejectionReason.trim()) {
+        return NextResponse.json(
+          { success: false, error: "Grant ID and rejection reason are required." },
+          { status: 400 }
+        );
+      }
+      const updated = await rejectSupportRequest({
+        adminUserId: admin.id,
+        grantId: Number(grantId),
+        rejectionReason: rejectionReason.trim(),
+      });
+      return NextResponse.json({
+        success: true,
+        message: `Support request #${grantId} rejected.`,
+        data: updated,
+      });
+    }
+
+    // 3. Fallback: Direct emergency support request initiation
     if (!businessId || !reason || !reason.trim()) {
       return NextResponse.json(
         { success: false, error: "Business ID and an explicit support reason are strictly required." },
@@ -16,17 +62,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const grant = await createSupportAccessGrant({
-      adminUserId: admin.id,
+    const grant = await createSupportRequest({
+      requestingUserId: admin.id,
       businessId: Number(businessId),
       reason: reason.trim(),
-      scope: scope === "FULL" ? "FULL" : "READ_ONLY",
-      durationMinutes: durationMinutes ? Number(durationMinutes) : 30,
+      scope: scope || "ACCOUNT_WHATSAPP",
+      requestedDurationMinutes: durationMinutes ? Number(durationMinutes) : 30,
     });
 
     return NextResponse.json({
       success: true,
-      message: `Support access granted for business #${businessId}. Session will expire in ${durationMinutes || 30} minutes.`,
+      message: `Support request created for business #${businessId}.`,
       data: grant,
     });
   } catch (error: any) {
@@ -37,7 +83,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to create support grant." },
+      { success: false, error: error.message || "Failed to process support action." },
       { status: 500 }
     );
   }
@@ -47,18 +93,19 @@ export async function DELETE(req: NextRequest) {
   try {
     const admin = await requirePlatformAdmin();
     const body = await req.json();
-    const { grantId } = body;
+    const { grantId, revocationReason } = body;
 
     if (!grantId) {
       return NextResponse.json(
-        { success: false, error: "Grant ID is required." },
+        { success: false, error: "Grant ID is required to revoke." },
         { status: 400 }
       );
     }
 
     const revoked = await revokeSupportAccessGrant({
-      adminUserId: admin.id,
+      actorUserId: admin.id,
       grantId: Number(grantId),
+      revocationReason: revocationReason || "Revoked by Platform Administrator",
     });
 
     return NextResponse.json({

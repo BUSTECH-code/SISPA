@@ -98,6 +98,7 @@ export const staffInvitations = pgTable(
     invitedByUserId: integer("invited_by_user_id")
       .notNull()
       .references(() => users.id),
+    customCapabilities: text("custom_capabilities"), // JSON string of intended capabilities e.g. ["CAN_SELL", "CAN_RECEIVE"]
     status: text("status").notNull().default("PENDING"), // 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED'
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
@@ -164,7 +165,7 @@ export const billingTransactions = pgTable(
 );
 
 // ==========================================
-// 7. Scoped Platform Support Access Logs
+// 7. Scoped Platform Support Access Grants & Logs
 // ==========================================
 export const supportAccessLogs = pgTable(
   "support_access_logs",
@@ -173,19 +174,43 @@ export const supportAccessLogs = pgTable(
     businessId: integer("business_id")
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
+    requestingUserId: integer("requesting_user_id")
+      .references(() => users.id),
     platformAdminUserId: integer("platform_admin_user_id")
-      .notNull()
       .references(() => users.id),
     reason: text("reason").notNull(),
-    scope: text("scope").notNull().default("READ_ONLY"),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    scope: text("scope").notNull().default("ACCOUNT_WHATSAPP"), // 'ACCOUNT_WHATSAPP' | 'CATALOG_DIAGNOSTICS' | 'DEBT_RECONCILIATION' | 'SYSTEM_CONFIG' | 'READ_ONLY' | 'FULL'
+    requestedDurationMinutes: integer("requested_duration_minutes").notNull().default(30),
+    status: text("status").notNull().default("PENDING"), // 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVOKED'
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revocationReason: text("revocation_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("support_business_idx").on(table.businessId),
     index("support_admin_idx").on(table.platformAdminUserId),
+    index("support_status_idx").on(table.status),
   ]
+);
+
+// ==========================================
+// 8. Platform Settings & Maintenance Configuration
+// ==========================================
+export const platformSettings = pgTable(
+  "platform_settings",
+  {
+    id: serial("id").primaryKey(),
+    maintenanceMode: boolean("maintenance_mode").notNull().default(false),
+    maintenanceNotice: text("maintenance_notice"),
+    defaultTrialDays: integer("default_trial_days").notNull().default(14),
+    gracePeriodDays: integer("grace_period_days").notNull().default(7),
+    allowSelfRegistration: boolean("allow_self_registration").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  }
 );
 
 // Sessions for cookie-based session persistence

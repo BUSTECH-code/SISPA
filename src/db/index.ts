@@ -204,7 +204,7 @@ async function seedInitialData(database: any) {
         state: "ACTIVE",
         ownerUserId: owner.id,
         subscriptionPlan: "STANDARD",
-        subscriptionStatus: "TRIAL",
+        subscriptionStatus: "ACTIVE",
         trialEndsAt,
       })
       .returning();
@@ -220,12 +220,12 @@ async function seedInitialData(database: any) {
     await database.insert(schema.businessSubscriptions).values({
       businessId: biz.id,
       plan: "STANDARD",
-      status: "TRIAL",
+      status: "ACTIVE",
       provider: "DIRECT",
       trialEndsAt,
     });
 
-    // 2. Staff Operator
+    // 2. Staff Operators for Business 1
     const [staff] = await database
       .insert(schema.users)
       .values({
@@ -249,8 +249,31 @@ async function seedInitialData(database: any) {
       activatedAt: new Date(),
     });
 
-    // 3. Platform Admin
-    await database
+    const [staff2] = await database
+      .insert(schema.users)
+      .values({
+        email: "haruna@buildingmaterials.com",
+        passwordHash,
+        fullName: "Haruna Bello (Yard Storekeeper)",
+        phone: "+234 803 555 1122",
+        role: "STAFF",
+        businessName: "Musa Building Materials & Hardware Ltd",
+        businessOwnerId: owner.id,
+        isActive: true,
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz.id,
+      userId: staff2.id,
+      role: "STAFF",
+      status: "ACTIVE",
+      activatedAt: new Date(),
+    });
+
+    // 3. Platform Admin User
+    const [admin] = await database
       .insert(schema.users)
       .values({
         email: "admin@sispa.io",
@@ -263,6 +286,282 @@ async function seedInitialData(database: any) {
         isPlatformAdmin: true,
       })
       .returning();
+
+    // 4. Business 2: Trial Business (Danladi Cement & Aggregates)
+    const [owner2] = await database
+      .insert(schema.users)
+      .values({
+        email: "danladi@aggregates.ng",
+        passwordHash,
+        fullName: "Danladi Ibrahim",
+        phone: "+234 805 777 8899",
+        role: "OWNER",
+        businessName: "Danladi Cement & Aggregates Ltd",
+        isActive: true,
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    const [biz2] = await database
+      .insert(schema.businesses)
+      .values({
+        name: "Danladi Cement & Aggregates Ltd",
+        currency: "NGN",
+        state: "ACTIVE",
+        ownerUserId: owner2.id,
+        subscriptionPlan: "TRIAL",
+        subscriptionStatus: "TRIAL",
+        trialEndsAt: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000), // 8 days remaining
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz2.id,
+      userId: owner2.id,
+      role: "OWNER",
+      status: "ACTIVE",
+      activatedAt: new Date(),
+    });
+
+    const [staffBiz2] = await database
+      .insert(schema.users)
+      .values({
+        email: "sani@aggregates.ng",
+        passwordHash,
+        fullName: "Sani Storekeeper",
+        phone: "+234 806 333 4455",
+        role: "STAFF",
+        businessName: "Danladi Cement & Aggregates Ltd",
+        businessOwnerId: owner2.id,
+        isActive: true,
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz2.id,
+      userId: staffBiz2.id,
+      role: "STAFF",
+      status: "ACTIVE",
+      activatedAt: new Date(),
+    });
+
+    // 5. Business 3: Past-Due Business in Grace Period (Emeka Timber & Glass)
+    const [owner3] = await database
+      .insert(schema.users)
+      .values({
+        email: "emeka@timberandglass.com",
+        passwordHash,
+        fullName: "Chief Emeka Okafor",
+        phone: "+234 802 444 7788",
+        role: "OWNER",
+        businessName: "Emeka Timber & Glass Merchant",
+        isActive: true,
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    const [biz3] = await database
+      .insert(schema.businesses)
+      .values({
+        name: "Emeka Timber & Glass Merchant",
+        currency: "NGN",
+        state: "ACTIVE",
+        ownerUserId: owner3.id,
+        subscriptionPlan: "STANDARD",
+        subscriptionStatus: "PAST_DUE", // Grace period active
+        trialEndsAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz3.id,
+      userId: owner3.id,
+      role: "OWNER",
+      status: "ACTIVE",
+      activatedAt: new Date(),
+    });
+
+    const [staffBiz3] = await database
+      .insert(schema.users)
+      .values({
+        email: "chidi@timberandglass.com",
+        passwordHash,
+        fullName: "Chidi Clerk",
+        phone: "+234 803 666 9911",
+        role: "STAFF",
+        businessName: "Emeka Timber & Glass Merchant",
+        businessOwnerId: owner3.id,
+        isActive: true,
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz3.id,
+      userId: staffBiz3.id,
+      role: "STAFF",
+      status: "ACTIVE",
+      activatedAt: new Date(),
+    });
+
+    // 6. Business 4: Restricted Business (Kaduna Central Steel Depot)
+    const [owner4] = await database
+      .insert(schema.users)
+      .values({
+        email: "amina@kadunasteel.com",
+        passwordHash,
+        fullName: "Amina Bello",
+        phone: "+234 809 111 2233",
+        role: "OWNER",
+        businessName: "Kaduna Central Steel Depot",
+        isActive: true,
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    const [biz4] = await database
+      .insert(schema.businesses)
+      .values({
+        name: "Kaduna Central Steel Depot",
+        currency: "NGN",
+        state: "RESTRICTED", // Restricted due to non-payment
+        ownerUserId: owner4.id,
+        subscriptionPlan: "STANDARD",
+        subscriptionStatus: "RESTRICTED",
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz4.id,
+      userId: owner4.id,
+      role: "OWNER",
+      status: "ACTIVE",
+      activatedAt: new Date(),
+    });
+
+    const [staffBiz4] = await database
+      .insert(schema.users)
+      .values({
+        email: "usman@kadunasteel.com",
+        passwordHash,
+        fullName: "Usman Counter",
+        phone: "+234 808 222 3344",
+        role: "STAFF",
+        businessName: "Kaduna Central Steel Depot",
+        businessOwnerId: owner4.id,
+        isActive: false, // Suspended
+        isPlatformAdmin: false,
+      })
+      .returning();
+
+    await database.insert(schema.businessMemberships).values({
+      businessId: biz4.id,
+      userId: staffBiz4.id,
+      role: "STAFF",
+      status: "SUSPENDED",
+      activatedAt: new Date(),
+    });
+
+    // 7. Seed Support Grants and Requests
+    // A. Pending Request from Alhaji Musa (Musa Building Materials)
+    await database.insert(schema.supportAccessLogs).values({
+      businessId: biz.id,
+      requestingUserId: owner.id,
+      reason: "WhatsApp notification webhook disconnects intermittently when recording counter sales.",
+      scope: "ACCOUNT_WHATSAPP",
+      requestedDurationMinutes: 30,
+      status: "PENDING",
+      createdAt: new Date(Date.now() - 45 * 60 * 1000), // 45 mins ago
+    });
+
+    // B. Approved Active Grant for Chief Emeka (Emeka Timber & Glass)
+    await database.insert(schema.supportAccessLogs).values({
+      businessId: biz3.id,
+      requestingUserId: owner3.id,
+      platformAdminUserId: admin.id,
+      reason: "Assistance verifying stock ledger delta calculation after multi-pallet delivery import.",
+      scope: "CATALOG_DIAGNOSTICS",
+      requestedDurationMinutes: 60,
+      status: "APPROVED",
+      approvedAt: new Date(Date.now() - 15 * 60 * 1000), // 15 mins ago
+      expiresAt: new Date(Date.now() + 45 * 60 * 1000), // 45 mins remaining
+      createdAt: new Date(Date.now() - 30 * 60 * 1000),
+    });
+
+    // C. Historical Expired Grant for Amina Bello (Kaduna Central Steel)
+    await database.insert(schema.supportAccessLogs).values({
+      businessId: biz4.id,
+      requestingUserId: owner4.id,
+      platformAdminUserId: admin.id,
+      reason: "Initial staff onboarding and access role configuration",
+      scope: "SYSTEM_CONFIG",
+      requestedDurationMinutes: 30,
+      status: "APPROVED",
+      approvedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000 + 30 * 60 * 1000),
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    });
+
+    // 8. Seed Platform Audit Trail
+    await database.insert(schema.auditLogs).values([
+      {
+        userId: admin.id,
+        businessId: biz4.id,
+        actorId: admin.id,
+        actorName: "SISPA Operations Platform Admin",
+        actorRole: "PLATFORM_ADMIN",
+        eventType: "BUSINESS_STATUS_CHANGED",
+        entityType: "BUSINESS",
+        entityId: biz4.id,
+        oldValue: "ACTIVE",
+        newValue: "RESTRICTED",
+        description: `Platform Admin changed business "${biz4.name}" state from ACTIVE to RESTRICTED. Reason: Commercial subscription past grace period without payment renewal`,
+        reason: "Commercial subscription past grace period without payment renewal",
+        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      },
+      {
+        userId: admin.id,
+        businessId: biz3.id,
+        actorId: admin.id,
+        actorName: "SISPA Operations Platform Admin",
+        actorRole: "PLATFORM_ADMIN",
+        eventType: "SUBSCRIPTION_STATUS_CHANGED",
+        entityType: "SUBSCRIPTION",
+        entityId: biz3.id,
+        oldValue: "ACTIVE",
+        newValue: "PAST_DUE",
+        description: `Platform Admin updated subscription for business "${biz3.name}": Plan=STANDARD, Status=PAST_DUE. 7-day grace period initiated.`,
+        reason: "Failed automatic card charge; 7-day grace period initiated",
+        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      },
+      {
+        userId: admin.id,
+        businessId: biz3.id,
+        actorId: admin.id,
+        actorName: "SISPA Operations Platform Admin",
+        actorRole: "PLATFORM_ADMIN",
+        eventType: "SUPPORT_REQUEST_APPROVED",
+        entityType: "SUPPORT_ACCESS",
+        entityId: 2,
+        description: `Platform Admin approved support grant #2 for business "${biz3.name}". Scope: CATALOG_DIAGNOSTICS, Active for 60 minutes.`,
+        reason: "Assistance verifying stock ledger delta calculation after multi-pallet delivery import",
+        createdAt: new Date(Date.now() - 15 * 60 * 1000),
+      },
+      {
+        userId: owner.id,
+        businessId: biz.id,
+        actorId: owner.id,
+        actorName: "Alhaji Ibrahim Musa",
+        actorRole: "OWNER",
+        eventType: "SUPPORT_REQUEST_SUBMITTED",
+        entityType: "SUPPORT_ACCESS",
+        entityId: 1,
+        description: `Business Owner Alhaji Ibrahim Musa requested 30-minute ACCOUNT_WHATSAPP support access. Reason: WhatsApp notification webhook disconnects intermittently when recording counter sales.`,
+        reason: "WhatsApp notification webhook disconnects intermittently when recording counter sales.",
+        createdAt: new Date(Date.now() - 45 * 60 * 1000),
+      },
+    ]);
 
     // 4. Sample Building Materials Catalog & Stock
     const now = new Date();

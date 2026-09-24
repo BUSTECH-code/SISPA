@@ -30,6 +30,7 @@ export function ProductDetailDrawer() {
     addToBuyingList,
     refreshData,
     isOwner,
+    canPerform,
   } = useStock();
 
   const [ledgerHistory, setLedgerHistory] = useState<StockLedgerEntry[]>([]);
@@ -176,7 +177,7 @@ export function ProductDetailDrawer() {
                   : "Not set"}
               </strong>
             </span>
-            {selectedProduct.lastSupplierInfo && (
+            {isOwner && selectedProduct.lastSupplierInfo && (
               <span>
                 Last bought: <strong>₦{selectedProduct.lastSupplierInfo.unitCost?.toLocaleString() || "—"}</strong>
               </span>
@@ -186,46 +187,54 @@ export function ProductDetailDrawer() {
 
         {/* Action Buttons Strip */}
         <div className="flex items-center gap-2 border-b border-slate-100 bg-white px-4 py-2 sm:px-6 overflow-x-auto">
-          <button
-            onClick={() => {
-              closeModal();
-              openRecordSale(selectedProduct);
-            }}
-            className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/60 px-3 text-xs font-bold text-red-800 hover:bg-red-100 transition-colors shrink-0"
-          >
-            <TrendingDown className="h-4 w-4 text-red-600" />
-            <span>Record Sale</span>
-          </button>
+          {canPerform("CAN_SELL") && (
+            <button
+              onClick={() => {
+                closeModal();
+                openRecordSale(selectedProduct);
+              }}
+              className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/60 px-3 text-xs font-bold text-red-800 hover:bg-red-100 transition-colors shrink-0 cursor-pointer"
+            >
+              <TrendingDown className="h-4 w-4 text-red-600" />
+              <span>Record Sale</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              closeModal();
-              openRecordDelivery(selectedProduct);
-            }}
-            className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-colors shrink-0"
-          >
-            <Truck className="h-4 w-4 text-emerald-600" />
-            <span>Record Delivery</span>
-          </button>
+          {canPerform("CAN_RECEIVE") && (
+            <button
+              onClick={() => {
+                closeModal();
+                openRecordDelivery(selectedProduct);
+              }}
+              className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-colors shrink-0 cursor-pointer"
+            >
+              <Truck className="h-4 w-4 text-emerald-600" />
+              <span>Record Delivery</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              closeModal();
-              openCountStock(selectedProduct);
-            }}
-            className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50/60 px-3 text-xs font-bold text-amber-900 hover:bg-amber-100 transition-colors shrink-0"
-          >
-            <Scale className="h-4 w-4 text-amber-700" />
-            <span>Count Stock</span>
-          </button>
+          {canPerform("CAN_COUNT") && (
+            <button
+              onClick={() => {
+                closeModal();
+                openCountStock(selectedProduct);
+              }}
+              className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50/60 px-3 text-xs font-bold text-amber-900 hover:bg-amber-100 transition-colors shrink-0 cursor-pointer"
+            >
+              <Scale className="h-4 w-4 text-amber-700" />
+              <span>Count Stock</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => addToBuyingList(selectedProduct)}
-            className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 text-xs font-bold text-blue-900 hover:bg-blue-100 transition-colors shrink-0"
-          >
-            <ShoppingCart className="h-4 w-4 text-blue-700" />
-            <span>Buy List</span>
-          </button>
+          {isOwner && (
+            <button
+              onClick={() => addToBuyingList(selectedProduct)}
+              className="flex min-h-[40px] items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 text-xs font-bold text-blue-900 hover:bg-blue-100 transition-colors shrink-0 cursor-pointer"
+            >
+              <ShoppingCart className="h-4 w-4 text-blue-700" />
+              <span>Buy List</span>
+            </button>
+          )}
         </div>
 
         {/* Tab Toggle: History vs Settings */}
@@ -242,7 +251,7 @@ export function ProductDetailDrawer() {
             <span>Stock History ({ledgerHistory.length})</span>
           </button>
 
-          {isOwner && (
+          {(isOwner || canPerform("CAN_CHANGE_PRICE")) && (
             <button
               onClick={() => setActiveTab("SETTINGS")}
               className={`flex items-center gap-1.5 border-b-2 py-2.5 px-3 text-xs font-bold transition-colors ${
@@ -252,7 +261,7 @@ export function ProductDetailDrawer() {
               }`}
             >
               <Settings className="h-4 w-4" />
-              <span>Product & Price Settings</span>
+              <span>{isOwner ? "Product & Price Settings" : "Price Settings"}</span>
             </button>
           )}
         </div>

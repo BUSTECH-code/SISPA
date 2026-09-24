@@ -28,7 +28,13 @@ export function StaffHomeView() {
     openCountStock,
     openProductDetails,
     setActiveTab,
+    canPerform,
   } = useStock();
+
+  const canSell = canPerform("CAN_SELL");
+  const canReceive = canPerform("CAN_RECEIVE");
+  const canCollect = canPerform("CAN_COLLECT");
+  const canCount = canPerform("CAN_COUNT");
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -101,88 +107,96 @@ export function StaffHomeView() {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {/* Action 1: Sell Goods */}
-          <button
-            onClick={() => openRecordSale()}
-            className="group flex flex-col justify-between rounded-3xl border-2 border-emerald-500/40 bg-emerald-50/50 p-5 text-left transition-all hover:bg-emerald-50 hover:border-emerald-600 hover:shadow-md active:scale-98"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 group-hover:scale-105 transition-transform">
-                <ShoppingBag className="h-6 w-6 stroke-[2.2]" />
+          {canSell && (
+            <button
+              onClick={() => openRecordSale()}
+              className="group flex flex-col justify-between rounded-3xl border-2 border-emerald-500/40 bg-emerald-50/50 p-5 text-left transition-all hover:bg-emerald-50 hover:border-emerald-600 hover:shadow-md active:scale-98 cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30 group-hover:scale-105 transition-transform">
+                  <ShoppingBag className="h-6 w-6 stroke-[2.2]" />
+                </div>
+                <span className="rounded-full bg-emerald-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-900">
+                  F1 • Sale
+                </span>
               </div>
-              <span className="rounded-full bg-emerald-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-900">
-                F1 • Sale
-              </span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-base font-black text-emerald-950">Record Sale</h3>
-              <p className="mt-1 text-xs text-emerald-800/80 font-medium">
-                Customer purchase with cash, bank transfer, POS, or credit debt.
-              </p>
-            </div>
-          </button>
+              <div className="mt-4">
+                <h3 className="text-base font-black text-emerald-950">Record Sale</h3>
+                <p className="mt-1 text-xs text-emerald-800/80 font-medium">
+                  Customer purchase with cash, bank transfer, POS, or credit debt.
+                </p>
+              </div>
+            </button>
+          )}
 
           {/* Action 2: Receive Goods */}
-          <button
-            onClick={() => openRecordDelivery()}
-            className="group flex flex-col justify-between rounded-3xl border-2 border-blue-500/40 bg-blue-50/50 p-5 text-left transition-all hover:bg-blue-50 hover:border-blue-600 hover:shadow-md active:scale-98"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform">
-                <Truck className="h-6 w-6 stroke-[2.2]" />
+          {canReceive && (
+            <button
+              onClick={() => openRecordDelivery()}
+              className="group flex flex-col justify-between rounded-3xl border-2 border-blue-500/40 bg-blue-50/50 p-5 text-left transition-all hover:bg-blue-50 hover:border-blue-600 hover:shadow-md active:scale-98 cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform">
+                  <Truck className="h-6 w-6 stroke-[2.2]" />
+                </div>
+                <span className="rounded-full bg-blue-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-blue-900">
+                  F2 • Restock
+                </span>
               </div>
-              <span className="rounded-full bg-blue-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-blue-900">
-                F2 • Restock
-              </span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-base font-black text-blue-950">Receive Delivery</h3>
-              <p className="mt-1 text-xs text-blue-800/80 font-medium">
-                Incoming goods arrival. Record quantity and supplier name.
-              </p>
-            </div>
-          </button>
+              <div className="mt-4">
+                <h3 className="text-base font-black text-blue-950">Receive Delivery</h3>
+                <p className="mt-1 text-xs text-blue-800/80 font-medium">
+                  Incoming goods arrival. Record quantity and supplier name.
+                </p>
+              </div>
+            </button>
+          )}
 
           {/* Action 3: Collect Payment */}
-          <button
-            onClick={() => openRecordPayment()}
-            className="group flex flex-col justify-between rounded-3xl border-2 border-amber-500/40 bg-amber-50/50 p-5 text-left transition-all hover:bg-amber-50 hover:border-amber-600 hover:shadow-md active:scale-98"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-md shadow-amber-600/30 group-hover:scale-105 transition-transform">
-                <CreditCard className="h-6 w-6 stroke-[2.2]" />
+          {canCollect && (
+            <button
+              onClick={() => openRecordPayment()}
+              className="group flex flex-col justify-between rounded-3xl border-2 border-amber-500/40 bg-amber-50/50 p-5 text-left transition-all hover:bg-amber-50 hover:border-amber-600 hover:shadow-md active:scale-98 cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-md shadow-amber-600/30 group-hover:scale-105 transition-transform">
+                  <CreditCard className="h-6 w-6 stroke-[2.2]" />
+                </div>
+                <span className="rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-900">
+                  F3 • Collect
+                </span>
               </div>
-              <span className="rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-900">
-                F3 • Collect
-              </span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-base font-black text-amber-950">Collect Debt</h3>
-              <p className="mt-1 text-xs text-amber-800/80 font-medium">
-                Record customer paying back money they owe the shop.
-              </p>
-            </div>
-          </button>
+              <div className="mt-4">
+                <h3 className="text-base font-black text-amber-950">Collect Debt</h3>
+                <p className="mt-1 text-xs text-amber-800/80 font-medium">
+                  Record customer paying back money they owe the shop.
+                </p>
+              </div>
+            </button>
+          )}
 
           {/* Action 4: Count Stock */}
-          <button
-            onClick={() => openCountStock()}
-            className="group flex flex-col justify-between rounded-3xl border-2 border-purple-500/40 bg-purple-50/50 p-5 text-left transition-all hover:bg-purple-50 hover:border-purple-600 hover:shadow-md active:scale-98"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-600 text-white shadow-md shadow-purple-600/30 group-hover:scale-105 transition-transform">
-                <Boxes className="h-6 w-6 stroke-[2.2]" />
+          {canCount && (
+            <button
+              onClick={() => openCountStock()}
+              className="group flex flex-col justify-between rounded-3xl border-2 border-purple-500/40 bg-purple-50/50 p-5 text-left transition-all hover:bg-purple-50 hover:border-purple-600 hover:shadow-md active:scale-98 cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-600 text-white shadow-md shadow-purple-600/30 group-hover:scale-105 transition-transform">
+                  <Boxes className="h-6 w-6 stroke-[2.2]" />
+                </div>
+                <span className="rounded-full bg-purple-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-purple-900">
+                  F4 • Count
+                </span>
               </div>
-              <span className="rounded-full bg-purple-200/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-purple-900">
-                F4 • Count
-              </span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-base font-black text-purple-950">Count Stock</h3>
-              <p className="mt-1 text-xs text-purple-800/80 font-medium">
-                Count items on shelf or yard and record physical tally.
-              </p>
-            </div>
-          </button>
+              <div className="mt-4">
+                <h3 className="text-base font-black text-purple-950">Count Stock</h3>
+                <p className="mt-1 text-xs text-purple-800/80 font-medium">
+                  Count items on shelf or yard and record physical tally.
+                </p>
+              </div>
+            </button>
+          )}
         </div>
       </div>
 
@@ -237,12 +251,14 @@ export function StaffHomeView() {
                         >
                           {p.currentStock} {p.unit} left
                         </span>
-                        <button
-                          onClick={() => openRecordSale(p)}
-                          className="rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700"
-                        >
-                          Sell
-                        </button>
+                        {canSell && (
+                          <button
+                            onClick={() => openRecordSale(p)}
+                            className="rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer"
+                          >
+                            Sell
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -281,10 +297,10 @@ export function StaffHomeView() {
                         >
                           {c.outstandingBalance > 0 ? `Owes ₦${c.outstandingBalance.toLocaleString()}` : "No Debt"}
                         </span>
-                        {c.outstandingBalance > 0 && (
+                        {canCollect && c.outstandingBalance > 0 && (
                           <button
                             onClick={() => openRecordPayment(c)}
-                            className="rounded-xl bg-amber-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-700"
+                            className="rounded-xl bg-amber-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-amber-700 cursor-pointer"
                           >
                             Collect
                           </button>

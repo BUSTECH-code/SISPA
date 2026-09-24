@@ -16,6 +16,7 @@ export type Capability =
   | "DELIVERY_CREATE"
   | "STOCK_COUNT"
   | "SELLING_PRICE_CHANGE"
+  | "SALE_CORRECTION"
   | "PURCHASE_COST_VIEW"
   | "PURCHASE_COST_EDIT"
   | "EXPENSE_CREATE"
@@ -31,6 +32,80 @@ export type Capability =
   | "PRODUCT_CREATE"
   | "PRODUCT_EDIT"
   | "BUYING_DECISION";
+
+export type StaffCapabilityKey =
+  | "CAN_SELL"
+  | "CAN_RECEIVE"
+  | "CAN_COLLECT"
+  | "CAN_COUNT"
+  | "CAN_CHANGE_PRICE"
+  | "CAN_CORRECT_TRANSACTIONS";
+
+export interface StaffCapabilityDefinition {
+  key: StaffCapabilityKey;
+  label: string;
+  description: string;
+  underlyingCapabilities: Capability[];
+  defaultGranted: boolean;
+}
+
+export const STAFF_CAPABILITIES: readonly StaffCapabilityDefinition[] = [
+  {
+    key: "CAN_SELL",
+    label: "Can sell goods",
+    description: "Record counter sales and issue receipts to walk-in or trade customers",
+    underlyingCapabilities: ["SALE_CREATE"],
+    defaultGranted: true,
+  },
+  {
+    key: "CAN_RECEIVE",
+    label: "Can receive goods",
+    description: "Tally and offload incoming supplier trucks (quantities only, costs hidden)",
+    underlyingCapabilities: ["DELIVERY_CREATE"],
+    defaultGranted: true,
+  },
+  {
+    key: "CAN_COLLECT",
+    label: "Can collect payments",
+    description: "Accept customer debt collections and post cash/transfer payments",
+    underlyingCapabilities: ["PAYMENT_CREATE"],
+    defaultGranted: true,
+  },
+  {
+    key: "CAN_COUNT",
+    label: "Can count stock",
+    description: "Perform physical shelf and warehouse inventory counts",
+    underlyingCapabilities: ["STOCK_COUNT"],
+    defaultGranted: true,
+  },
+  {
+    key: "CAN_CHANGE_PRICE",
+    label: "Can change selling prices",
+    description: "Update the customer selling price of materials in the store catalog",
+    underlyingCapabilities: ["SELLING_PRICE_CHANGE"],
+    defaultGranted: false,
+  },
+  {
+    key: "CAN_CORRECT_TRANSACTIONS",
+    label: "Can correct completed transactions",
+    description: "Correct or void mistakes on recorded sales",
+    underlyingCapabilities: ["SALE_CORRECTION"],
+    defaultGranted: false,
+  },
+];
+
+export function resolveStaffCapabilities(delegatedKeys: string[]): Capability[] {
+  const caps = new Set<Capability>();
+  for (const key of delegatedKeys) {
+    const def = STAFF_CAPABILITIES.find((d) => d.key === key);
+    if (def) {
+      def.underlyingCapabilities.forEach((c) => caps.add(c));
+    } else {
+      caps.add(key as Capability);
+    }
+  }
+  return Array.from(caps);
+}
 
 export type MembershipRole = "OWNER" | "STAFF";
 
@@ -256,16 +331,33 @@ export function can(
     return true;
   }
 
-  // Staff members: check default staff capabilities or explicitly delegated custom capabilities
-  if (STAFF_DEFAULT_CAPABILITIES.includes(capability)) {
-    return true;
+  // Sensitive commercial capabilities are EXCLUSIVELY reserved for the business owner
+  const SENSITIVE_OWNER_CAPABILITIES: readonly Capability[] = [
+    "PURCHASE_COST_VIEW",
+    "PURCHASE_COST_EDIT",
+    "EXPENSE_VIEW",
+    "REPORT_VIEW",
+    "STAFF_MANAGE",
+    "EXPORT_DATA",
+    "BUSINESS_SETTINGS",
+    "OWNERSHIP_TRANSFER",
+    "AUDIT_VIEW_SENSITIVE",
+    "CASH_CHECK_VIEW",
+    "BUYING_DECISION",
+  ];
+
+  if (SENSITIVE_OWNER_CAPABILITIES.includes(capability)) {
+    return false;
   }
 
-  if (membership.customCapabilities && membership.customCapabilities.includes(capability)) {
-    return true;
+  // Staff members: check explicitly delegated capabilities if set
+  if (membership.customCapabilities && membership.customCapabilities.length > 0) {
+    const resolved = resolveStaffCapabilities(membership.customCapabilities as string[]);
+    return resolved.includes(capability);
   }
 
-  return false;
+  // Fallback to standard default staff capabilities if no custom capabilities configured
+  return STAFF_DEFAULT_CAPABILITIES.includes(capability);
 }
 
 /**
@@ -317,12 +409,19 @@ export function redactSensitiveDataForStaff<T extends Record<string, any>>(
   if ("unitCost" in copy) copy.unitCost = null;
   if ("openingUnitCost" in copy) copy.openingUnitCost = null;
   if ("estimatedUnitCost" in copy) copy.estimatedUnitCost = null;
+  if ("purchaseCost" in copy) copy.purchaseCost = null;
+  if ("unitPurchaseCost" in copy) copy.unitPurchaseCost = null;
+  if ("totalCost" in copy) copy.totalCost = null;
   if ("costOfGoodsSold" in copy) copy.costOfGoodsSold = null;
   if ("estimatedProfit" in copy) copy.estimatedProfit = null;
   if ("profitBreakdown" in copy) copy.profitBreakdown = null;
   if ("restockExpenditure" in copy) copy.restockExpenditure = null;
   if ("operatingExpenses" in copy) copy.operatingExpenses = null;
   if ("totalMoneySpent" in copy) copy.totalMoneySpent = null;
+  if ("margin" in copy) copy.margin = null;
+  if ("markup" in copy) copy.markup = null;
+  if ("lastSupplierInfo" in copy) copy.lastSupplierInfo = null;
+  if ("supplierCostHistory" in copy) copy.supplierCostHistory = [];
 
   return copy as T;
 }

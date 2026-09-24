@@ -7,85 +7,137 @@
 
 ## 1. What is SISPA?
 
-SISPA is a commercial, multi-tenant software system designed specifically for building-material distributors, wholesalers, and retail depots (selling cement, steel rebar, PVC pipes, roofing sheets, emulsion paints, sanitary ware, electrical cable, and hardware).
+SISPA is a commercial, multi-tenant software system designed specifically for building-material distributors, wholesalers, and retail depots selling cement, steel rebar, PVC pipes, roofing sheets, emulsion paints, sanitary ware, electrical cable, and hardware.
 
-Unlike heavy enterprise accounting suites or generic ERP systems with hundreds of complex menus, SISPA is designed around **one simple operational principle**:
+Unlike heavy enterprise accounting suites or generic ERP systems with hundreds of complex menus, SISPA is designed around **two fundamental product principles**:
 
-> **SISPA should reduce the amount of work required from the shop owner while increasing the amount of useful business awareness it provides.**
+1. **"SHOW USERS WHAT THEY NEED FIRST. MAKE EVERYTHING ELSE DISCOVERABLE WHEN THEY NEED IT."**
+2. **"DO NOT MAKE THE USER NAVIGATE THE SYSTEM'S ARCHITECTURE. ORGANIZE THE PRODUCT AROUND THE USER'S JOB."**
 
-SISPA acts like an experienced, vigilant shop manager sitting beside you — continuously monitoring shelf stock, watching how fast goods are moving, tracking contractor debts, and telling you exactly what to buy before you lose sales.
+SISPA acts like an experienced, vigilant shop manager sitting beside the owner — continuously monitoring yard stock, watching how fast goods are selling, tracking contractor credit, and telling you exactly what to buy before you lose sales.
 
 ---
 
-## 2. Quick Demo & Evaluation (1-Click Switcher)
+## 2. Architectural Separation: Identity, Environment & Authority
 
-To allow instant evaluation across all three authority boundaries, SISPA includes an **Instant Role Switcher** right in the top navigation bar and authentication modal:
+SISPA strictly decouples four distinct concepts that are often conflated in naive systems:
 
-| Persona | Name | Role | Access & Boundary |
+```
++-----------------------------------------------------------------------------------+
+| 1. AUTHENTICATED IDENTITY (Who is logged in?)                                     |
+|    - Alhaji Ibrahim (Owner) | Musa Aminu (Staff) | SaaS Operations Admin (Platform)|
++-----------------------------------------------------------------------------------+
+                                         |
+                                         v
++-----------------------------------------------------------------------------------+
+| 2. OPERATING ENVIRONMENT (Where are they operating?)                              |
+|    +--------------------------------------+------------------------------------+  |
+|    |      SISPA PLATFORM ENVIRONMENT      |       BUSINESS SHOP ENVIRONMENT    |  |
+|    |  (SaaS Fleet, Subscriptions, Health) |  (Yard Inventory, Sales, Credit)   |  |
+|    +--------------------------------------+------------------------------------+  |
++-----------------------------------------------------------------------------------+
+                                         |
+                                         v
++-----------------------------------------------------------------------------------+
+| 3. AUTHORITY & DELEGATION (What actions are permitted?)                           |
+|    - Platform Admin: SaaS fleet metrics, subscription upgrades, support grants.   |
+|    - Business Owner: Commercial pricing, margins, staff delegation, cash drawer. |
+|    - Business Staff: Delegated operational counter desk (sell, receive, count).   |
++-----------------------------------------------------------------------------------+
+                                         |
+                                         v
++-----------------------------------------------------------------------------------+
+| 4. INFORMATION ACCESS & PROGRESSIVE VISIBILITY (What is shown immediately?)       |
+|    - Layer 1 (Immediate): Today's Sales, Cash Collected, Customers Owing.         |
+|    - Layer 2 (Action): Sell, Receive, Collect, Restock (Buy).                     |
+|    - Layer 3 (Context): Urgent stockout warnings only (Healthy stock tucked away).|
+|    - Layer 4 (Detail): Searchable Stock List, Customer Debt Book, Buying Planner. |
+|    - Layer 5 (Governance): "More" Hub -> Staff, Expenses, Suppliers, WhatsApp.    |
++-----------------------------------------------------------------------------------+
+```
+
+### Why WhatsApp is Excluded from Platform Admin
+WhatsApp is an operational business interface that interacts with a specific business's catalog, debtors, and orders. Platform Admins manage the multi-tenant SaaS fleet and have **Zero Casual Access** to tenant records. Exposing WhatsApp in the platform shell would breach tenant commercial privacy. Both the backend `/api/whatsapp` endpoint and the frontend UI enforce strict tenant-boundary checks.
+
+---
+
+## 3. Quick Demo & Evaluation (Instant Persona Switcher)
+
+To allow instant evaluation across all operating environments, SISPA includes an **Instant Role Switcher** in the top navigation bar and authentication modal:
+
+| Persona | Name | Operating Environment | Access & Boundary |
 | :--- | :--- | :--- | :--- |
-| 🏢 **Shop Owner** | Alhaji Ibrahim Musa | `OWNER` | Full commercial control: purchase costs, profit estimates, margins, debt, staff admin, cash reconciliation |
-| 👷 **Staff Operator** | Musa Aminu | `STAFF` | Operational counter desk: sell goods, receive truck deliveries, collect debt, physical counts. **All purchase costs & margins redacted** |
-| 🛡️ **Platform Admin** | SaaS Operations Admin | `PLATFORM_ADMIN` | Multi-tenant SaaS fleet management, subscriptions, system health. **Zero Casual Access** to tenant records |
+| 🏢 **Shop Owner** | Alhaji Ibrahim Musa | **Business Environment** | Full commercial control: purchase costs, profit estimates, margins, debt, staff delegation, cash drawer check. |
+| 👷 **Staff Operator** | Musa Aminu | **Business Environment** | Delegated counter desk: sell goods, receive truck deliveries, collect debt, physical counts. **All purchase costs & margins redacted server-side**. |
+| 🛡️ **Platform Admin** | SaaS Operations Admin | **Platform Environment** | Multi-tenant SaaS fleet management, subscriptions, platform audit. **Zero Casual Access** to tenant records. |
 
-*Credentials for manual login if desired: Password is `password123` for all demo accounts.*
-
----
-
-## 3. The 3 Distinct Authority Levels
-
-SISPA enforces strict separation of concerns through three distinct authority boundaries:
-
-```
-+-------------------------------------------------------------------+
-|                        PLATFORM ADMIN                             |
-|  (Manages SaaS tenants, subscriptions, auditable support grants)  |
-+---------------------------------+---------------------------------+
-                                  |
-                                  v
-+-------------------------------------------------------------------+
-|                        BUSINESS OWNER                             |
-|  (Full commercial control: purchase costs, profit, debt, staff)   |
-+---------------------------------+---------------------------------+
-                                  |
-                                  v
-+-------------------------------------------------------------------+
-|                        STAFF OPERATOR                             |
-|  (Operational desk: sell goods, receive trucks, collect debt)     |
-+-------------------------------------------------------------------+
-```
-
-### 1. Platform Admin (SISPA SaaS Operator)
-- **Role**: Belongs to the SISPA platform itself, not to any individual shop.
-- **Home View**: **The Platform Operations Console** — "What needs attention across the entire SISPA fleet?"
-- **Capabilities**:
-  - Monitors total registered shops, active subscriptions, and database health.
-  - Manages tenant accounts, trial extensions, and subscription plans (Standard, Pro, Enterprise).
-  - **Zero Casual Access**: Platform Admins have **NO casual access** to browse individual shop stock, unit purchase costs, contractor debt balances, or private financial records.
-  - **Time-Limited Support Access Grants**: When a shop owner requests technical assistance, the admin must record an explicit, auditable support grant with a documented justification, defined scope (Read-Only vs. Full), and short expiry (15–60 minutes). Every grant is permanently logged in the security audit trail.
-
-### 2. Business Owner (Shop Proprietor)
-- **Role**: The owner or managing director of the building-material business.
-- **Home View**: **The Attention Feed** — "What needs my decision today?"
-- **Capabilities**:
-  - Full visibility into purchase costs, profit estimates, and operating expenses.
-  - Reviews and modifies buying recommendations before ordering.
-  - Manages supplier price histories to verify who gives the best deal.
-  - Oversees customer credit balances and sends payment reminders.
-  - Invites, manages, or disables staff operator accounts.
-  - Performs daily evening cash drawer reconciliations.
-  - Exports full business backups (JSON format).
-
-### 3. Staff Operator (Counter Clerk / Storekeeper)
-- **Role**: Counter staff, cashiers, or warehouse personnel performing daily shop transactions.
-- **Home View**: **The Staff Operations Desk** — "What do I need to do right now?"
-- **Capabilities**:
-  - Primary touch-optimized actions: **Record Sale**, **Receive Delivery**, **Collect Debt**, **Count Stock**.
-  - Fast universal lookup: Search product selling price and available stock; check customer contact info and current debt balance.
-  - **Strict Commercial Privacy**: Staff members **cannot see** purchase costs, gross margins, estimated profits, shop expense summaries, supplier price histories, staff management tools, or the audit trail. All sensitive financial values are redacted server-side and in the UI.
+*Credentials for manual login: Password is `password123` for all seeded demo accounts.*
 
 ---
 
-## 4. Financial Truth: Concepts Explained Simply
+## 4. The Redesigned Business Owner Experience
+
+The business owner is the primary target user. Rather than presenting a wall of charts or database tables, the Owner experience is structured around the owner's natural mental model:
+1. **What happened today?**
+2. **What needs my attention right now?**
+3. **What do I need to do?**
+4. **How is the business performing?**
+
+### The 5 Progressive Visibility Layers
+
+#### Layer 1 — Immediate (Today's Financial Pulse)
+The top of the Owner Home screen displays the three numbers that define today's reality:
+- **Sales Today (₦)**: Total goods sold across all cash and credit orders.
+- **Cash Collected Today (₦)**: Real physical naira and verified bank transfers received into the till.
+- **Customers Owing (₦)**: Total outstanding debt across all builders and contractors.
+
+#### Layer 2 — Action (Operational Launchers & Attention Triggers)
+Four large, thumb-friendly primary action buttons:
+- **Sell Goods** (`openRecordSale`) — Fast 2-tap sale recording.
+- **Receive Delivery** (`openRecordDelivery`) — Offload arriving supplier trucks.
+- **Collect Money** (`openRecordPayment`) — Record debt recovery payments.
+- **Restock (Buy)** (`setActiveTab("BUYING")`) — Review buying list and replenishment orders.
+
+Accompanied by direct-verb attention cards:
+- *7 products need buying* $\rightarrow$ **Buy**
+- *₦320k pending collection* $\rightarrow$ **Collect**
+- *12 products ready for weekly count* $\rightarrow$ **Count**
+
+#### Layer 3 — Context (What Will Finish First)
+The stock urgency section displays **only items that require reordering**:
+- 🔴 **Running Low (Buy Now)**: Products with less days of stock than supplier lead time + safety buffer.
+- 🟡 **Check Soon (Buy Soon)**: Products approaching their reorder threshold within 7 days.
+- 🟢 **Healthy Products**: Collapsed by default under an expandable disclosure badge (*"Show 8 Healthy Products"*), preventing visual clutter.
+
+#### Layer 4 — Detail (Operational Workspaces)
+Accessible via the task-oriented bottom bar and desktop navigation:
+- **Stock**: Full searchable catalog with filters, pack units, and minimum reorder levels.
+- **Buy**: Buying list with inline quantity adjustments (`[-]` and `[+]`) and pre-filled supplier offloading.
+- **Collect**: Customer credit book, days overdue, and WhatsApp payment reminder generators.
+
+#### Layer 5 — Administration & Governance (`More` Hub)
+Organized cleanly under **More** (`setActiveTab("MORE")`), preventing administrative tools from cluttering daily sales:
+- **Team & Staff Management**: Invite staff via secure links, set operational capabilities, suspend/reactivate staff, or transfer business ownership.
+- **Financial Controls**: Shop expense tracker, daily cash drawer reconciliation, financial summaries.
+- **Suppliers & Vendors**: Vendor directory, delivery histories, and purchase cost trends.
+- **WhatsApp Assistant**: Plain-language conversational assistant for checking stock and recording sales.
+- **System Governance**: Data export (JSON backup) and sample building-material inventory reset.
+
+---
+
+## 5. Staff Management & Capability Delegation
+
+The owner can discover and manage staff naturally via `More → Staff & Team Management`:
+
+1. **Invite Staff**: Enter staff member's name and optional email to generate a secure, 7-day invitation link.
+2. **Direct Account Creation**: Quickly register counter clerks with an email and temporary password.
+3. **Capability Delegation**: Staff accounts have strictly delegated operational authority. They can record sales, deliveries, and counts, but cannot view purchase costs, gross margins, supplier costs, or owner financial reports.
+4. **Account Suspension & Reactivation**: 1-click toggle to suspend access if a clerk is on leave or terminated.
+5. **Ownership Transfer**: Formal multi-step transfer workflow requiring current owner's password verification and documented reason.
+
+---
+
+## 6. Financial Truth: Concepts Explained Simply
 
 Many shop owners mistakenly look only at total sales and assume their business is flourishing, only to find their bank account empty when suppliers demand payment. SISPA teaches and enforces the **Five Financial Truths**:
 
@@ -94,24 +146,22 @@ Many shop owners mistakenly look only at total sales and assume their business i
 | **Sales** | The total agreed price of all goods handed to customers during the period. | High sales does **not** mean you have money. If goods were taken on credit, cash has not yet entered your hands. |
 | **Cash Collected** | Real physical money or verified bank transfers that actually arrived in your till today. | This is your true operational liquidity. You can only pay staff, rent, and suppliers with collected cash, not with sales on paper. |
 | **Customer Debt** | Goods taken by builders and contractors that have not yet been paid for. | Uncontrolled credit starves your shop of working capital. SISPA tracks every debtor and days overdue so money is collected before jobs finish. |
-| **Purchases (Restock)** | Money paid to manufacturers and suppliers for incoming inventory. | This is not an expense that vanishes; it is an asset exchange (cash converted into sellable inventory). |
+| **Purchases (Restock)** | Money paid to manufacturers and suppliers for incoming inventory. | This is an asset exchange (cash converted into sellable inventory), not an expense that vanishes. |
 | **Operating Expenses** | Running costs: diesel for the generator, shop rent, transport, repairs, lunch allowances. | These are the true expenses that reduce your take-home profit. |
 | **Estimated Profit** | `Sales - Cost of Goods Sold - Operating Expenses`. | Your true commercial reward after accounting for what products cost you and what it cost to keep the doors open. |
 
 ---
 
-## 5. How SISPA Stock Intelligence Works
+## 7. How SISPA Stock Intelligence Works
 
-SISPA translates inventory numbers into plain, actionable advice:
+SISPA translates raw yard numbers into plain, actionable advice:
 
 ### 1. Days Until Run-Out
-SISPA continuously calculates your **average daily sales rate** over the past 7 and 30 days.  
-If you have **120 bags of Dangote Cement 42.5R** in stock and your customers buy an average of **30 bags per day**, SISPA calculates:
-$$\text{Days of Stock} = \frac{120}{30} = 4 \text{ days remaining}$$
+SISPA continuously calculates your **average daily sales rate** over the past 7 and 30 days:
+$$\text{Days of Stock} = \frac{\text{Current Available Quantity}}{\text{Average Daily Sales Rate}}$$
 
 ### 2. Lead Time & Safety Buffer
-If your cement supplier takes **3 days** from order placement to offloading a trailer at your yard, ordering on Day 4 means you will run completely out of cement before the truck arrives.  
-SISPA factors in supplier lead times plus a safety stock buffer, triggering a **"Buy Now" (Running Low)** alert before your shelves hit zero.
+If your cement supplier takes **3 days** from order placement to offloading a trailer at your yard, ordering on Day 3 means you will run completely out of cement while the truck is in transit. SISPA factors in supplier lead times plus a safety buffer, triggering a **"Buy Now" (Running Low)** alert before your shelves hit zero.
 
 ### 3. Decision Control: Suggestion vs. Decision
 SISPA suggests; the owner decides.
@@ -121,59 +171,39 @@ SISPA suggests; the owner decides.
 
 ---
 
-## 6. How to Use SISPA in Daily Work
+## 8. Daily Operating Rhythm with SISPA
 
-### Morning (5 Minutes): The Attention Feed
+### Morning (3 Minutes): The Owner Home Pulse
 1. Open SISPA on your phone or laptop.
-2. Glance at the top summary cards: **Money in Drawer vs Debt vs Urgent Items**.
-3. Review your **Top Actions for Today**:
-   - Items highlighted in **Red ("Running Low")**: Call supplier or review buying list.
-   - Overdue contractor debts: Tap to call contractor or send payment reminder.
-   - Stock count alerts: Items that have not had a physical shelf count in over 30 days.
+2. Glance at **Sales Today**, **Cash Collected**, and **Customers Owing**.
+3. Review **Needs Attention**: Buy critical stock, collect overdue debts, check stock counts.
 
-### Throughout the Day: Counter Operations
-- **Selling Goods**: Tap **"Record Sale"**. Search product, enter quantity, select customer (or walk-in), pick payment method (Cash, Bank Transfer, POS, Credit). The stock reduces instantly.
-- **Truck Offloading**: Tap **"Receive Delivery"**. Select product, enter delivered quantity, enter supplier name. Stock increases instantly.
-- **Contractor Payment**: When a builder arrives with cash or sends a bank transfer receipt, tap **"Collect Debt"** on their card, enter amount paid, and select payment method. Their debt drops immediately.
-- **Quick Stock Count**: Storekeeper walks down the yard, taps **"Count Stock"**, enters physical tally. If there is a discrepancy, SISPA records an adjustment in the permanent audit ledger.
+### Throughout the Day: Fast Counter Operations
+- **Selling Goods**: Tap **"Sell Goods"** (`[+]`). Search product, enter quantity, select customer (or walk-in), pick payment method (Cash, Bank Transfer, POS, Credit). Stock decrements instantly.
+- **Truck Offloading**: Tap **"Receive Delivery"**. Select product, enter delivered quantity, enter supplier name. Stock increments immediately.
+- **Contractor Payment**: When a builder arrives with cash or sends a bank transfer receipt, tap **"Collect Money"**, select customer, enter amount. Customer debt balance updates instantly.
+- **Quick Stock Count**: Storekeeper walks down the yard, taps **"Count Stock"**, enters physical tally. Any discrepancy creates an auditable adjustment entry.
 
 ### Evening (3 Minutes): The Cash Drawer Check
-1. Click **"Check Cash Today"** on the Attention Feed or Reports view.
-2. Count the physical cash in your drawer/safe.
+1. Open `More → Check Cash Drawer`.
+2. Count the physical cash in your safe/drawer.
 3. Type the cash count into SISPA.
-4. SISPA immediately compares your physical cash against recorded cash sales and cash debt payments:
+4. SISPA compares physical cash against recorded cash sales and cash debt payments:
    - **Matched**: Drawer balances perfectly.
-   - **Over / Short**: Flags any difference immediately so cash discrepancies are caught the same day.
-
-### Weekly: Supplier Price Review
-1. Tap **"Suppliers"** in the top navigation.
-2. Review delivery history, latest prices paid, and previous purchase costs across vendors.
-3. Identify price increases or select the vendor offering the most consistent pricing.
+   - **Over / Short**: Flags any difference immediately so discrepancies are investigated the same day.
 
 ---
 
-## 7. WhatsApp Assistant Integration
+## 9. Security, Multi-Tenant Isolation & Progressive Visibility
 
-Building-material shop owners spend most of their day on WhatsApp negotiating with contractors and dispatching drivers. SISPA features a built-in **WhatsApp Assistant Engine**:
+SISPA is engineered from the database layer upward with strict security:
 
-- **Stock Inquiries**: *"How many bags of 42.5R cement do we have?"* → Assistant responds instantly with available balance and selling price.
-- **Buying Suggestions**: *"What should I buy today?"* → Assistant summarizes critical items nearing stockout.
-- **Customer Debt Inquiries**: *"How much does Musa Contractor owe us?"* → Assistant returns current outstanding debt and days since last purchase.
-- **Natural Language Recording**: Type or copy-paste messages like *"Sold 20 bundles 12mm rebar to Alhaji Garba for 180,000 cash"* to record transactions rapidly.
-- **Pre-formatted Daily Briefing**: Click to generate a concise summary ready to send to your business partner or WhatsApp status.
-
----
-
-## 8. Security, Multi-Tenant Isolation & Progressive Visibility
-
-SISPA was engineered from the database layer upward with enterprise-grade safety:
-
-1. **Strict Multi-Tenant Isolation**: Every database query filters by `userId` (the tenant's business ID). One shop can never view another shop's data under any circumstance.
-2. **Server-Side Financial Redaction**: Purchase costs, profit calculations, and supplier price history are stripped on the server before responses leave the backend.
-3. **Immutable Stock Ledger**: Stock is never edited arbitrarily. Every change creates an immutable ledger entry (`SALE`, `RESTOCK`, `ADJUSTMENT`, `RETURN`) linked to the product and actor.
+1. **Strict Multi-Tenant Isolation**: Every database query is tenant-scoped by business identity. One shop cannot view another shop's data under any circumstance.
+2. **Server-Side Financial Redaction**: Purchase costs, profit calculations, and supplier price history are stripped on the server before responses leave the backend when requested by staff accounts.
+3. **Immutable Stock Ledger**: Stock quantities are never edited in place. Every change creates an immutable ledger entry (`SALE`, `RESTOCK`, `ADJUSTMENT`, `CORRECTION`) linked to the product and actor.
 4. **Permanent Audit Trail**: Critical business operations (price changes, inventory adjustments, delivery cost updates, sale corrections, staff status changes) are written to the audit log with operator name, role, timestamp, old value, and new value.
 5. **Platform Admin Zero Casual Access Guard**: Platform Admins have zero casual access to tenant stock or debts. To investigate an issue, an auditable, time-limited support grant must be created.
-6. **Resilient Database Architecture**: Automatically connects to PostgreSQL when provisioned, and seamlessly falls back to an in-memory SQL database (`pg-mem`) with pre-seeded demo building material data when running in standalone or preview environments.
+6. **Resilient Database Architecture**: Automatically connects to PostgreSQL when provisioned, and seamlessly falls back to an in-memory SQL database (`pg-mem`) with pre-seeded building-material inventory in standalone or preview environments.
 
 ---
 

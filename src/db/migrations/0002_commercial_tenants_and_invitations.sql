@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS "staff_invitations" (
   "invitee_name" text,
   "role" text DEFAULT 'STAFF' NOT NULL,
   "invited_by_user_id" integer NOT NULL REFERENCES "users"("id"),
+  "custom_capabilities" text,
   "status" text DEFAULT 'PENDING' NOT NULL,
   "expires_at" timestamp with time zone NOT NULL,
   "accepted_at" timestamp with time zone,
@@ -106,16 +107,35 @@ CREATE INDEX IF NOT EXISTS "billing_status_idx" ON "billing_transactions" ("stat
 CREATE TABLE IF NOT EXISTS "support_access_logs" (
   "id" serial PRIMARY KEY NOT NULL,
   "business_id" integer NOT NULL REFERENCES "businesses"("id") ON DELETE CASCADE,
-  "platform_admin_user_id" integer NOT NULL REFERENCES "users"("id"),
+  "requesting_user_id" integer REFERENCES "users"("id"),
+  "platform_admin_user_id" integer REFERENCES "users"("id"),
   "reason" text NOT NULL,
-  "scope" text DEFAULT 'READ_ONLY' NOT NULL,
-  "expires_at" timestamp with time zone NOT NULL,
+  "scope" text DEFAULT 'ACCOUNT_WHATSAPP' NOT NULL,
+  "requested_duration_minutes" integer DEFAULT 30 NOT NULL,
+  "status" text DEFAULT 'PENDING' NOT NULL,
+  "approved_at" timestamp with time zone,
+  "expires_at" timestamp with time zone,
+  "rejected_at" timestamp with time zone,
+  "rejection_reason" text,
   "revoked_at" timestamp with time zone,
+  "revocation_reason" text,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS "support_business_idx" ON "support_access_logs" ("business_id");
 CREATE INDEX IF NOT EXISTS "support_admin_idx" ON "support_access_logs" ("platform_admin_user_id");
+CREATE INDEX IF NOT EXISTS "support_status_idx" ON "support_access_logs" ("status");
+
+-- 8. Create platform_settings table
+CREATE TABLE IF NOT EXISTS "platform_settings" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "maintenance_mode" boolean DEFAULT false NOT NULL,
+  "maintenance_notice" text,
+  "default_trial_days" integer DEFAULT 14 NOT NULL,
+  "grace_period_days" integer DEFAULT 7 NOT NULL,
+  "allow_self_registration" boolean DEFAULT true NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
 
 -- 8. Add audit_logs commercial tenant & state columns
 ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "business_id" integer;

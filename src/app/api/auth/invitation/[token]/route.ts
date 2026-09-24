@@ -23,6 +23,13 @@ export async function GET(
       );
     }
 
+    let capabilities = ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
+    if (validation.invitation.customCapabilities) {
+      try {
+        capabilities = JSON.parse(validation.invitation.customCapabilities);
+      } catch {}
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -30,6 +37,7 @@ export async function GET(
         inviteeName: validation.invitation.inviteeName,
         inviteeEmail: validation.invitation.inviteeEmail,
         role: validation.invitation.role,
+        capabilities,
         expiresAt: validation.invitation.expiresAt,
       },
     });

@@ -16,6 +16,7 @@ import { ExpensesView } from "./ExpensesView";
 import { ActivityView } from "./ActivityView";
 import { AuditTrailView } from "./AuditTrailView";
 import { WhatsAppAssistantView } from "./WhatsAppAssistantView";
+import { OwnerMoreView } from "./OwnerMoreView";
 import { RecordSaleModal } from "./RecordSaleModal";
 import { RecordDeliveryModal } from "./RecordDeliveryModal";
 import { CountStockModal } from "./CountStockModal";
@@ -166,6 +167,7 @@ export function MainApp() {
         {activeTab === "AUDIT" && <AuditTrailView />}
         {activeTab === "WHATSAPP" && <WhatsAppAssistantView />}
         {activeTab === "ACTIVITY" && <ActivityView />}
+        {activeTab === "MORE" && <OwnerMoreView />}
       </main>
 
       {/* Mobile Bottom Navigation Bar */}

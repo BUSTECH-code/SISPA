@@ -18,7 +18,17 @@ import {
   ArrowRightLeft,
   KeyRound,
   ShieldAlert,
+  Sliders,
 } from "lucide-react";
+
+export const CAPABILITY_OPTIONS = [
+  { key: "CAN_SELL", label: "Sell goods", desc: "Record sales & issue customer receipts" },
+  { key: "CAN_RECEIVE", label: "Receive goods", desc: "Tally incoming stock without seeing purchase costs" },
+  { key: "CAN_COLLECT", label: "Collect payments", desc: "Receive customer debt payments" },
+  { key: "CAN_COUNT", label: "Count stock", desc: "Conduct physical stock-taking counts" },
+  { key: "CAN_CHANGE_PRICE", label: "Change selling prices", desc: "Edit product catalog selling prices" },
+  { key: "CAN_CORRECT_TRANSACTIONS", label: "Correct sales", desc: "Reverse or correct completed sales transactions" },
+];
 
 export function StaffManagementModal() {
   const {
@@ -29,6 +39,7 @@ export function StaffManagementModal() {
     createStaffInvitation,
     revokeStaffInvitation,
     updateStaffStatus,
+    updateStaffCapabilities,
     transferOwnership,
     createStaffUser,
   } = useStock();
@@ -38,8 +49,18 @@ export function StaffManagementModal() {
   // Invitation Form
   const [inviteeName, setInviteeName] = useState("");
   const [inviteeEmail, setInviteeEmail] = useState("");
+  const [inviteCapabilities, setInviteCapabilities] = useState<string[]>([
+    "CAN_SELL",
+    "CAN_RECEIVE",
+    "CAN_COLLECT",
+    "CAN_COUNT",
+  ]);
   const [generatedInvite, setGeneratedInvite] = useState<{ inviteUrl: string; inviteeName: string; expiresAt: string } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Capability Editor for existing staff member
+  const [editingStaffId, setEditingStaffId] = useState<number | null>(null);
+  const [editingCaps, setEditingCaps] = useState<string[]>([]);
 
   // Direct Account Form
   const [directFullName, setDirectFullName] = useState("");
@@ -57,6 +78,18 @@ export function StaffManagementModal() {
 
   if (activeModal !== "STAFF_MANAGEMENT") return null;
 
+  const toggleInviteCap = (key: string) => {
+    setInviteCapabilities((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const toggleEditingCap = (key: string) => {
+    setEditingCaps((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
   // Handle Generate Invitation Link
   const handleGenerateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +102,11 @@ export function StaffManagementModal() {
     }
 
     setIsSubmitting(true);
-    const res = await createStaffInvitation(inviteeName.trim(), inviteeEmail.trim() || undefined);
+    const res = await createStaffInvitation(
+      inviteeName.trim(),
+      inviteeEmail.trim() || undefined,
+      inviteCapabilities
+    );
     setIsSubmitting(false);
 
     if (res.success && res.data) {
@@ -83,6 +120,20 @@ export function StaffManagementModal() {
       setInviteeEmail("");
     } else {
       setErrorMessage(res.error || "Failed to generate invitation.");
+    }
+  };
+
+  const handleSaveStaffCapabilities = async (staffUserId: number) => {
+    setIsSubmitting(true);
+    const res = await updateStaffCapabilities(staffUserId, editingCaps);
+    setIsSubmitting(false);
+
+    if (res.success) {
+      setSuccessMessage("Staff capabilities updated successfully!");
+      setEditingStaffId(null);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } else {
+      setErrorMessage(res.error || "Failed to update capabilities.");
     }
   };
 
@@ -322,6 +373,47 @@ export function StaffManagementModal() {
                     className="w-full min-h-[40px] rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900 bg-white"
                   />
                 </div>
+
+                {/* Delegated Capabilities Selection */}
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <ShieldCheck className="h-4 w-4 text-purple-700" />
+                      <span>Allowed Operational Capabilities</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-medium">Owner Delegated</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {CAPABILITY_OPTIONS.map((cap) => {
+                      const isChecked = inviteCapabilities.includes(cap.key);
+                      return (
+                        <label
+                          key={cap.key}
+                          className={`flex items-start gap-2 p-2 rounded-xl border cursor-pointer transition-all ${
+                            isChecked
+                              ? "bg-purple-50/60 border-purple-300 text-purple-950"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleInviteCap(cap.key)}
+                            className="mt-0.5 h-3.5 w-3.5 rounded text-purple-600 focus:ring-purple-500 border-slate-300"
+                          />
+                          <div>
+                            <div className="text-xs font-bold leading-tight">{cap.label}</div>
+                            <div className="text-[10px] text-slate-500 leading-tight mt-0.5">{cap.desc}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-purple-700 italic pt-1">
+                    🔒 Purchase costs, product profit margins, and financial reports are strictly blocked server-side.
+                  </p>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isSubmitting}
@@ -490,6 +582,106 @@ export function StaffManagementModal() {
                           </div>
                         )}
                       </div>
+
+                      {/* Delegated Capabilities display & editor */}
+                      {!isDeactivated && (
+                        <div className="mt-3 pt-3 border-t border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                              <ShieldCheck className="h-3.5 w-3.5 text-purple-700" />
+                              <span>Delegated Capabilities</span>
+                            </span>
+                            {editingStaffId !== staffUserId ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingStaffId(staffUserId);
+                                  setEditingCaps(
+                                    staff.customCapabilities && staff.customCapabilities.length > 0
+                                      ? staff.customCapabilities
+                                      : ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"]
+                                  );
+                                }}
+                                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1 hover:underline cursor-pointer"
+                              >
+                                <Sliders className="h-3 w-3" />
+                                <span>Adjust Permissions</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setEditingStaffId(null)}
+                                className="text-[11px] font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+
+                          {editingStaffId === staffUserId ? (
+                            <div className="mt-2.5 rounded-xl border border-purple-200 bg-purple-50/50 p-3 space-y-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {CAPABILITY_OPTIONS.map((cap) => {
+                                  const isChecked = editingCaps.includes(cap.key);
+                                  return (
+                                    <label
+                                      key={cap.key}
+                                      className={`flex items-start gap-2 p-1.5 rounded-lg border text-xs cursor-pointer transition-all ${
+                                        isChecked
+                                          ? "bg-white border-purple-300 font-bold text-purple-950"
+                                          : "bg-white/60 border-slate-200 text-slate-600"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => toggleEditingCap(cap.key)}
+                                        className="mt-0.5 h-3.5 w-3.5 rounded text-purple-600 border-slate-300"
+                                      />
+                                      <span>{cap.label}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                              <div className="flex justify-end pt-1">
+                                <button
+                                  type="button"
+                                  disabled={isSubmitting}
+                                  onClick={() => handleSaveStaffCapabilities(staffUserId)}
+                                  className="px-3 py-1.5 rounded-xl bg-purple-700 text-white text-xs font-bold hover:bg-purple-800 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  <span>{isSubmitting ? "Saving..." : "Save Permissions"}</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {(staff.customCapabilities && staff.customCapabilities.length > 0
+                                ? staff.customCapabilities
+                                : ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"]
+                              ).map((cap) => {
+                                const labels: Record<string, string> = {
+                                  CAN_SELL: "Sell Goods",
+                                  CAN_RECEIVE: "Receive Deliveries",
+                                  CAN_COLLECT: "Collect Debts",
+                                  CAN_COUNT: "Count Stock",
+                                  CAN_CHANGE_PRICE: "Change Prices",
+                                  CAN_CORRECT_TRANSACTIONS: "Correct Sales",
+                                };
+                                return (
+                                  <span
+                                    key={cap}
+                                    className="rounded-lg bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-800 border border-purple-100"
+                                  >
+                                    ✓ {labels[cap] || cap}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
