@@ -1311,12 +1311,14 @@ export async function getPlatformOverview(adminUserId: number) {
             phone: requestingUser.phone || "",
           }
         : null,
+      requestingOwnerName: requestingUser?.fullName || "Business Owner",
       approvingAdmin: approvingAdmin
         ? {
             id: approvingAdmin.id,
             fullName: approvingAdmin.fullName,
           }
         : null,
+      approvingAdminName: approvingAdmin?.fullName || null,
       reason: g.reason,
       scope: g.scope,
       requestedDurationMinutes: g.requestedDurationMinutes,
@@ -1466,7 +1468,7 @@ export async function updateBusinessStateAdmin(params: {
 export async function updateBusinessSubscriptionAdmin(params: {
   adminUserId: number;
   businessId: number;
-  plan?: "TRIAL" | "STANDARD" | "GROWTH" | "ENTERPRISE";
+  plan?: "TRIAL" | "STANDARD" | "PRO" | "GROWTH" | "ENTERPRISE" | string;
   status?: "TRIAL" | "ACTIVE" | "PAST_DUE" | "GRACE_PERIOD" | "RESTRICTED" | "SUSPENDED" | "CANCELLED";
   extendTrialDays?: number;
   reason?: string;

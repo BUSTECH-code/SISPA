@@ -839,6 +839,10 @@ if (isTest || !isPostgresReachable()) {
     }
 
     db = drizzle(pool, { schema });
+
+    seedInitialData(db).catch((err) => {
+      console.error("[SISPA] Initial Postgres seed warning:", err);
+    });
   } catch (error) {
     console.warn("[AI Studio] Database connection initialization failed — using pg-mem fallback:", error);
     const pgMemInstance = initPgMem();
@@ -847,5 +851,5 @@ if (isTest || !isPostgresReachable()) {
   }
 }
 
-export { pool, db };
+export { pool, db, seedInitialData };
 

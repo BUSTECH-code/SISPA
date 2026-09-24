@@ -7,8 +7,8 @@
  */
 
 import { db } from "@/db";
-import { auditLogs } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { auditLogs, businesses, users } from "@/db/schema";
+import { eq, desc, and, or } from "drizzle-orm";
 import type { AuthContext } from "./authorization";
 
 export type AuditSource = "WEB" | "WHATSAPP" | "SYSTEM" | "SUPPORT";
@@ -84,9 +84,26 @@ export async function recordSecurityAudit(params: RecordSecurityAuditParams): Pr
         ? JSON.stringify(params.afterState)
         : params.afterState ? String(params.afterState) : null;
 
+    // Resolve an authoritative, existing users.id for the foreign key
+    let targetUserId = params.actorId;
+    if (params.businessId && params.businessId > 0) {
+      try {
+        const [biz] = await db
+          .select({ ownerUserId: businesses.ownerUserId })
+          .from(businesses)
+          .where(eq(businesses.id, params.businessId))
+          .limit(1);
+        if (biz?.ownerUserId) {
+          targetUserId = biz.ownerUserId;
+        }
+      } catch {
+        // Keep targetUserId as actorId
+      }
+    }
+
     await db.insert(auditLogs).values({
-      userId: params.businessId, // For backwards compatibility
-      businessId: params.businessId,
+      userId: targetUserId,
+      businessId: params.businessId && params.businessId > 0 ? params.businessId : null,
       actorId: params.actorId,
       actorName: params.actorName,
       actorRole: params.actorRole,
@@ -104,7 +121,7 @@ export async function recordSecurityAudit(params: RecordSecurityAuditParams): Pr
     });
   } catch (error) {
     console.error("[SISPA Audit] Failed to record security audit log:", error);
-    // Audit write failures shouldn't silently swallow if security critical, but handle gracefully
+    throw error; // Propagate error so atomic operations fail clearly rather than swallowing
   }
 }
 
@@ -122,7 +139,7 @@ export async function getSecurityAuditLogs(params: {
     const records = await db
       .select()
       .from(auditLogs)
-      .where(eq(auditLogs.userId, businessId))
+      .where(or(eq(auditLogs.businessId, businessId), eq(auditLogs.userId, businessId)))
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
 
