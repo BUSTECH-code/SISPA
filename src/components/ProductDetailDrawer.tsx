@@ -85,20 +85,25 @@ export function ProductDetailDrawer() {
     e.preventDefault();
     setIsSavingSettings(true);
     try {
+      const bodyPayload: Record<string, any> = {
+        sellingPrice: sellingPrice ? Number(sellingPrice) : null,
+      };
+
+      if (isOwner) {
+        bodyPayload.name = name.trim();
+        bodyPayload.category = category.trim();
+        bodyPayload.unit = unit.trim();
+        bodyPayload.desiredCoverageDays = Number(desiredCoverageDays) || 7;
+        bodyPayload.minimumStockThreshold = minimumStockThreshold ? Number(minimumStockThreshold) : null;
+        bodyPayload.manualDailySalesOverride = manualDailySalesOverride
+          ? Number(manualDailySalesOverride)
+          : null;
+      }
+
       const res = await fetch(`/api/products/${selectedProduct.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          category: category.trim(),
-          unit: unit.trim(),
-          sellingPrice: sellingPrice ? Number(sellingPrice) : null,
-          desiredCoverageDays: Number(desiredCoverageDays) || 7,
-          minimumStockThreshold: minimumStockThreshold ? Number(minimumStockThreshold) : null,
-          manualDailySalesOverride: manualDailySalesOverride
-            ? Number(manualDailySalesOverride)
-            : null,
-        }),
+        body: JSON.stringify(bodyPayload),
       });
 
       const json = await res.json();
@@ -356,105 +361,138 @@ export function ProductDetailDrawer() {
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Product Name</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-900"
-                />
-              </div>
+              {isOwner ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Product Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-900"
+                    />
+                  </div>
 
-              {/* Selling price - Authoritative record */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-                <label className="block text-xs font-bold text-emerald-950 mb-1 flex items-center gap-1.5">
-                  <Tag className="h-3.5 w-3.5 text-emerald-700" />
-                  <span>Shop Selling Price for one (₦)</span>
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 9200"
-                  value={sellingPrice}
-                  onChange={(e) => setSellingPrice(e.target.value)}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-black text-slate-900"
-                />
-                <p className="mt-1 text-[10px] text-slate-500">
-                  Authoritative selling price used when recording sales in shop and on WhatsApp.
-                </p>
-              </div>
+                  {/* Selling price - Authoritative record */}
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
+                    <label className="block text-xs font-bold text-emerald-950 mb-1 flex items-center gap-1.5">
+                      <Tag className="h-3.5 w-3.5 text-emerald-700" />
+                      <span>Shop Selling Price for one (₦)</span>
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 9200"
+                      value={sellingPrice}
+                      onChange={(e) => setSellingPrice(e.target.value)}
+                      className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-black text-slate-900"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Authoritative selling price used when recording sales in shop and on WhatsApp.
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
-                  <input
-                    type="text"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900"
-                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
+                      <input
+                        type="text"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                        className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Unit of Measure</label>
+                      <input
+                        type="text"
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Days of Stock to Keep
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={desiredCoverageDays}
+                        onChange={(e) => setDesiredCoverageDays(e.target.value)}
+                        className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900"
+                      />
+                      <span className="text-[10px] text-slate-500">Coverage target</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Minimum Stock Level
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="None"
+                        value={minimumStockThreshold}
+                        onChange={(e) => setMinimumStockThreshold(e.target.value)}
+                        className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900"
+                      />
+                      <span className="text-[10px] text-slate-500">Alert threshold</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Manual Daily Sales Override (optional)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      placeholder="Auto-calculated from sales"
+                      value={manualDailySalesOverride}
+                      onChange={(e) => setManualDailySalesOverride(e.target.value)}
+                      className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900"
+                    />
+                    <span className="text-[10px] text-slate-500">
+                      Override automatic calculation if sales vary due to seasonality.
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-2xl bg-amber-50/70 border border-amber-200/80 p-3.5 text-xs text-amber-900">
+                    <div className="font-bold flex items-center gap-1.5 mb-1">
+                      <Tag className="h-4 w-4 text-amber-700" />
+                      <span>Delegated Selling Price Adjustment</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      You are authorized by the shop owner to adjust the customer selling price for <strong>{selectedProduct.name}</strong>.
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                    <label className="block text-xs font-bold text-emerald-950 mb-1 flex items-center gap-1.5">
+                      <Tag className="h-3.5 w-3.5 text-emerald-700" />
+                      <span>Customer Selling Price (₦ per {selectedProduct.unit})</span>
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 9200"
+                      value={sellingPrice}
+                      onChange={(e) => setSellingPrice(e.target.value)}
+                      className="w-full min-h-[48px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-lg font-black text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      This price immediately applies when recording counter sales and WhatsApp orders.
+                    </p>
+                  </div>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Unit of Measure</label>
-                  <input
-                    type="text"
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Days of Stock to Keep
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={desiredCoverageDays}
-                    onChange={(e) => setDesiredCoverageDays(e.target.value)}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900"
-                  />
-                  <span className="text-[10px] text-slate-500">Coverage target</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Minimum Stock Level
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="None"
-                    value={minimumStockThreshold}
-                    onChange={(e) => setMinimumStockThreshold(e.target.value)}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900"
-                  />
-                  <span className="text-[10px] text-slate-500">Alert threshold</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Manual Daily Sales Override (optional)
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  placeholder="Auto-calculated from sales"
-                  value={manualDailySalesOverride}
-                  onChange={(e) => setManualDailySalesOverride(e.target.value)}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900"
-                />
-                <span className="text-[10px] text-slate-500">
-                  Override automatic calculation if sales vary due to seasonality.
-                </span>
-              </div>
+              )}
 
               <div className="pt-2">
                 <button

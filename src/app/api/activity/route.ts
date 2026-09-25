@@ -23,9 +23,12 @@ export async function GET() {
         supplierName: stockLedgerEntries.supplierName,
         notes: stockLedgerEntries.notes,
         createdAt: stockLedgerEntries.createdAt,
+        staffUserId: stockLedgerEntries.staffUserId,
+        staffName: users.fullName,
       })
       .from(stockLedgerEntries)
       .innerJoin(products, eq(stockLedgerEntries.productId, products.id))
+      .leftJoin(users, eq(stockLedgerEntries.staffUserId, users.id))
       .where(eq(stockLedgerEntries.userId, businessId))
       .orderBy(desc(stockLedgerEntries.createdAt))
       .limit(60);
@@ -34,6 +37,8 @@ export async function GET() {
     const sanitized = list.map((item) => ({
       ...item,
       unitCost: userRole === "OWNER" ? item.unitCost : null,
+      staffUserId: item.staffUserId,
+      staffName: item.staffName,
     }));
 
     return NextResponse.json({ success: true, data: sanitized });

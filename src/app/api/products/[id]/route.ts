@@ -20,7 +20,7 @@ export async function GET(
       return NextResponse.json({ success: false, error: "Invalid product ID." }, { status: 400 });
     }
 
-    const details = await getProductDetails(businessId, productId, userRole);
+    const details = await getProductDetails(businessId, productId, userRole, user.id);
     if (!details) {
       return NextResponse.json({ success: false, error: "Product not found." }, { status: 404 });
     }

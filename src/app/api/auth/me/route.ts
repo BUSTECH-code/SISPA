@@ -13,9 +13,11 @@ export async function GET() {
 
     const userRole = user.role === "STAFF" ? "STAFF" : user.role === "OWNER" ? "OWNER" : undefined;
     const authCtx = await getAuthContextForUser(user.id, userRole);
+    const rawCaps = authCtx?.membership?.customCapabilities;
     const delegatedCapabilities =
-      authCtx?.membership?.customCapabilities ||
-      (user.role === "STAFF" ? ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"] : []);
+      rawCaps && Array.isArray(rawCaps) && rawCaps.length > 0
+        ? rawCaps
+        : (user.role === "STAFF" ? ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"] : []);
 
     return NextResponse.json({
       success: true,

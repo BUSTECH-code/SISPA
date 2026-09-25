@@ -32,6 +32,7 @@ export function Navbar() {
     logout,
     isLoading,
     refreshData,
+    canPerform,
   } = useStock();
 
   const pendingBuyingCount = buyingList.filter((i) => !i.isCompleted).length;
@@ -135,18 +136,6 @@ export function Navbar() {
                     <ShieldAlert className="h-3.5 w-3.5 text-purple-400" />
                     <span>Fleet Ops</span>
                   </button>
-                  <button
-                    onClick={() => setActiveTab("AUDIT")}
-                    title="Platform Audit Log"
-                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
-                      activeTab === "AUDIT"
-                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    <History className="h-3.5 w-3.5" />
-                    <span>Audit</span>
-                  </button>
                 </div>
               )}
 
@@ -232,7 +221,7 @@ export function Navbar() {
                     className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
                       activeTab === "HOME"
                         ? "bg-amber-100 text-amber-900"
-                        : "text-slate-600 hover:text-slate-900"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                     }`}
                   >
                     <span>Counter Desk</span>
@@ -242,11 +231,40 @@ export function Navbar() {
                     className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
                       activeTab === "STOCK"
                         ? "bg-amber-100 text-amber-900"
-                        : "text-slate-600 hover:text-slate-900"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                     }`}
                   >
                     <Boxes className="h-3.5 w-3.5" />
                     <span>Stock</span>
+                  </button>
+                  {canPerform("CAN_COLLECT") && (
+                    <button
+                      onClick={() => setActiveTab("DEBT")}
+                      className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                        activeTab === "DEBT"
+                          ? "bg-red-50 text-red-900 font-bold"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                      }`}
+                    >
+                      <CreditCard className="h-3.5 w-3.5" />
+                      <span>Collect Debt</span>
+                      {debtorsCount > 0 && (
+                        <span className="rounded-full bg-red-600 px-1.5 py-0.2 text-[10px] font-black text-white">
+                          {debtorsCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setActiveTab("ACTIVITY")}
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                      activeTab === "ACTIVITY"
+                        ? "bg-slate-900 text-white"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <History className="h-3.5 w-3.5" />
+                    <span>Activity</span>
                   </button>
                 </div>
               )}

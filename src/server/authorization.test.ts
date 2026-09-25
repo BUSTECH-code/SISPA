@@ -89,6 +89,32 @@ describe("Capability-Based Authorization & Sensitivity Engine", () => {
     expect(() => assertCan(suspendedStaffContext, "SALE_CREATE")).toThrow("STAFF_SUSPENDED");
   });
 
+  it("allows operational Staff to perform sales, deliveries, payments, and stock counts", () => {
+    expect(can(activeStaffContext, "SALE_CREATE")).toBe(true);
+    expect(can(activeStaffContext, "DELIVERY_CREATE")).toBe(true);
+    expect(can(activeStaffContext, "PAYMENT_CREATE")).toBe(true);
+    expect(can(activeStaffContext, "STOCK_COUNT")).toBe(true);
+    expect(() => assertCan(activeStaffContext, "SALE_CREATE")).not.toThrow();
+    expect(() => assertCan(activeStaffContext, "DELIVERY_CREATE")).not.toThrow();
+    expect(() => assertCan(activeStaffContext, "PAYMENT_CREATE")).not.toThrow();
+    expect(() => assertCan(activeStaffContext, "STOCK_COUNT")).not.toThrow();
+  });
+
+  it("permits delegated capabilities such as CAN_CHANGE_PRICE when configured", () => {
+    const staffWithPriceCapability: AuthContext = {
+      ...activeStaffContext,
+      membership: {
+        ...activeStaffContext.membership,
+        customCapabilities: ["CAN_CHANGE_PRICE"] as any,
+      },
+    };
+
+    expect(can(staffWithPriceCapability, "SELLING_PRICE_CHANGE")).toBe(true);
+    expect(() => assertCan(staffWithPriceCapability, "SELLING_PRICE_CHANGE")).not.toThrow();
+    // But sensitive owner data remains restricted
+    expect(can(staffWithPriceCapability, "PURCHASE_COST_VIEW")).toBe(false);
+  });
+
   it("redactSensitiveDataForStaff thoroughly strips purchase costs and margins for staff", () => {
     const sensitiveProduct = {
       id: 1,

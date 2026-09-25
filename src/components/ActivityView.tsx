@@ -100,7 +100,7 @@ export function ActivityView() {
                   </div>
 
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-slate-900">
                         {item.productName}
                       </span>
@@ -111,6 +111,11 @@ export function ActivityView() {
                         {item.entryType === "CORRECTION" && "Sale Correction"}
                         {item.entryType === "OPENING_BALANCE" && "Opening Balance"}
                       </span>
+                      {item.staffName && (
+                        <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          By {item.staffName}
+                        </span>
+                      )}
                     </div>
 
                     <p className="mt-0.5 text-xs text-slate-600">

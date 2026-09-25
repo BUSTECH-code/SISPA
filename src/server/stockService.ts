@@ -459,8 +459,22 @@ export async function updateProduct(params: {
   if (actorId) {
     const authCtx = await getAuthContextForUser(actorId, actorRole);
     if (authCtx) {
-      assertCan(authCtx, "PRODUCT_EDIT");
-      if (params.sellingPrice !== undefined && String(params.sellingPrice) !== String(oldProd.sellingPrice)) {
+      const isPriceChanging =
+        params.sellingPrice !== undefined &&
+        String(params.sellingPrice) !== String(oldProd.sellingPrice);
+
+      const isNonPriceChanging =
+        (params.name !== undefined && params.name.trim() !== oldProd.name) ||
+        (params.category !== undefined && params.category.trim() !== oldProd.category) ||
+        (params.unit !== undefined && params.unit.trim() !== oldProd.unit) ||
+        (params.desiredCoverageDays !== undefined && params.desiredCoverageDays !== oldProd.desiredCoverageDays) ||
+        (params.minimumStockThreshold !== undefined && params.minimumStockThreshold !== oldProd.minimumStockThreshold) ||
+        (params.manualDailySalesOverride !== undefined && params.manualDailySalesOverride !== (oldProd.manualDailySalesOverride ? Number(oldProd.manualDailySalesOverride) : null));
+
+      if (isNonPriceChanging) {
+        assertCan(authCtx, "PRODUCT_EDIT");
+      }
+      if (isPriceChanging) {
         assertCan(authCtx, "SELLING_PRICE_CHANGE");
       }
     }

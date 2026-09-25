@@ -247,6 +247,7 @@ async function seedInitialData(database: any) {
       role: "STAFF",
       status: "ACTIVE",
       activatedAt: new Date(),
+      customCapabilities: JSON.stringify(["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"]),
     });
 
     const [staff2] = await database
@@ -270,6 +271,7 @@ async function seedInitialData(database: any) {
       role: "STAFF",
       status: "ACTIVE",
       activatedAt: new Date(),
+      customCapabilities: JSON.stringify(["CAN_RECEIVE", "CAN_COUNT"]),
     });
 
     // 3. Platform Admin User
@@ -764,14 +766,79 @@ async function seedInitialData(database: any) {
       createdAt: new Date(now.getTime() - 1 * dayMs),
     });
 
-    // Customer Payment
-    await database.insert(schema.customerPayments).values({
+    // 3. Sale recorded by Staff (Musa Aminu)
+    const [s3] = await database
+      .insert(schema.sales)
+      .values({
+        userId: owner.id,
+        staffUserId: staff.id,
+        customerId: c1.id,
+        productId: p1.id,
+        quantity: "10",
+        unitPrice: "9200",
+        totalAmount: "92000",
+        amountPaid: "50000",
+        outstandingAmount: "42000",
+        paymentStatus: "PARTIAL",
+        notes: "Counter sale for foundation extension recorded by Musa Aminu",
+        createdAt: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+      })
+      .returning();
+
+    await database.insert(schema.stockLedgerEntries).values({
       userId: owner.id,
-      customerId: c1.id,
-      amount: "50000",
-      paymentMethod: "TRANSFER",
-      notes: "Site lead partial payment towards cement debt",
-      createdAt: new Date(now.getTime() - 1 * dayMs),
+      staffUserId: staff.id,
+      productId: p1.id,
+      saleId: s3.id,
+      entryType: "SALE",
+      quantityDelta: "-10",
+      notes: "Counter sale for foundation extension recorded by Musa Aminu",
+      createdAt: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+    });
+
+    // 4. Delivery received by Staff (Musa Aminu)
+    await database.insert(schema.stockLedgerEntries).values({
+      userId: owner.id,
+      staffUserId: staff.id,
+      productId: p4.id,
+      entryType: "RESTOCK",
+      quantityDelta: "20",
+      unitCost: "42000",
+      supplierName: "CAP Plc Coatings Distributor",
+      notes: "Paint buckets received and offloaded at store by Musa Aminu",
+      createdAt: new Date(now.getTime() - 18 * 60 * 60 * 1000),
+    });
+
+    // Customer Payments
+    await database.insert(schema.customerPayments).values([
+      {
+        userId: owner.id,
+        customerId: c1.id,
+        amount: "50000",
+        paymentMethod: "TRANSFER",
+        notes: "Site lead partial payment towards cement debt",
+        createdAt: new Date(now.getTime() - 1 * dayMs),
+      },
+      {
+        userId: owner.id,
+        staffUserId: staff.id,
+        customerId: c1.id,
+        amount: "34000",
+        paymentMethod: "CASH",
+        notes: "Debt recovery payment collected at counter by Musa Aminu",
+        createdAt: new Date(now.getTime() - 6 * 60 * 60 * 1000),
+      },
+    ]);
+
+    // 5. Physical stock count performed by Staff (Musa Aminu)
+    await database.insert(schema.stockLedgerEntries).values({
+      userId: owner.id,
+      staffUserId: staff.id,
+      productId: p3.id,
+      entryType: "ADJUSTMENT",
+      quantityDelta: "-2",
+      notes: "Physical shelf count: 33 Length (system was 35, difference: -2 damaged pipes)",
+      createdAt: new Date(now.getTime() - 4 * 60 * 60 * 1000),
     });
 
     // Buying List Item
@@ -806,17 +873,76 @@ async function seedInitialData(database: any) {
       },
     ]);
 
-    // Audit Log
-    await database.insert(schema.auditLogs).values({
-      userId: owner.id,
-      actorId: owner.id,
-      actorName: "Alhaji Ibrahim Musa",
-      actorRole: "OWNER",
-      eventType: "INITIAL_SETUP",
-      entityType: "SYSTEM",
-      description: "Shop opened and inventory catalog initialized with building materials",
-      createdAt: new Date(now.getTime() - 14 * dayMs),
-    });
+    // Audit Log demonstrating multi-user attribution
+    await database.insert(schema.auditLogs).values([
+      {
+        userId: owner.id,
+        businessId: biz.id,
+        actorId: owner.id,
+        actorName: "Alhaji Ibrahim Musa",
+        actorRole: "OWNER",
+        eventType: "INITIAL_SETUP",
+        entityType: "SYSTEM",
+        description: "Shop opened and inventory catalog initialized with building materials",
+        isSensitive: false,
+        createdAt: new Date(now.getTime() - 14 * dayMs),
+      },
+      {
+        userId: owner.id,
+        businessId: biz.id,
+        actorId: staff.id,
+        actorName: "Musa Aminu (Shop Staff)",
+        actorRole: "STAFF",
+        eventType: "DELIVERY",
+        entityType: "DELIVERY",
+        description: 'Musa Aminu (Shop Staff) received +20 Bucket of "Dulux WeatherShield White Emulsion (20L)" from CAP Plc Coatings Distributor',
+        newValue: "+20 Bucket",
+        isSensitive: false,
+        createdAt: new Date(now.getTime() - 18 * 60 * 60 * 1000),
+      },
+      {
+        userId: owner.id,
+        businessId: biz.id,
+        actorId: staff.id,
+        actorName: "Musa Aminu (Shop Staff)",
+        actorRole: "STAFF",
+        eventType: "SALE",
+        entityType: "SALE",
+        entityId: s3.id,
+        description: "Musa Aminu (Shop Staff) recorded sale of 10 Bag of Dangote Cement 42.5R (50kg) to Musa Contractor (Prime Construction)",
+        newValue: "10 Bag",
+        isSensitive: false,
+        createdAt: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+      },
+      {
+        userId: owner.id,
+        businessId: biz.id,
+        actorId: staff.id,
+        actorName: "Musa Aminu (Shop Staff)",
+        actorRole: "STAFF",
+        eventType: "PAYMENT",
+        entityType: "PAYMENT",
+        description: "Musa Aminu (Shop Staff) collected ₦34,000 from Musa Contractor (Prime Construction) (CASH)",
+        newValue: "₦34,000",
+        isSensitive: false,
+        createdAt: new Date(now.getTime() - 6 * 60 * 60 * 1000),
+      },
+      {
+        userId: owner.id,
+        businessId: biz.id,
+        actorId: staff.id,
+        actorName: "Musa Aminu (Shop Staff)",
+        actorRole: "STAFF",
+        eventType: "STOCK_COUNT",
+        entityType: "STOCK",
+        entityId: p3.id,
+        oldValue: "35",
+        newValue: "33",
+        description: "Musa Aminu (Shop Staff) counted PVC Pressure Pipe 4-inch (5.8m): physical 33 Length (Difference: 2 fewer)",
+        isSensitive: false,
+        createdAt: new Date(now.getTime() - 4 * 60 * 60 * 1000),
+      },
+    ]);
   } catch (err) {
     console.error("[SISPA] Seed error:", err);
   }

@@ -18,6 +18,7 @@ import {
   Building2,
   Clock,
   Headphones,
+  History,
 } from "lucide-react";
 import { OwnerSupportRequestModal } from "./OwnerSupportRequestModal";
 
@@ -218,6 +219,23 @@ export function OwnerMoreView() {
               <div>
                 <h3 className="font-bold text-sm text-slate-900">Verified Activity Log</h3>
                 <p className="text-xs text-slate-500">Timestamped record of all sales & deliveries</p>
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-slate-600 group-hover:translate-x-1 group-hover:text-slate-900 transition-all" />
+          </button>
+
+          {/* Business Audit Trail */}
+          <button
+            onClick={() => setActiveTab("AUDIT")}
+            className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-2xs hover:border-amber-300 hover:bg-amber-50/30 transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+                <History className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">Business Audit Trail</h3>
+                <p className="text-xs text-slate-500">Immutable governance record with staff attribution</p>
               </div>
             </div>
             <ChevronRight className="h-5 w-5 text-slate-600 group-hover:translate-x-1 group-hover:text-slate-900 transition-all" />

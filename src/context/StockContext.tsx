@@ -71,6 +71,8 @@ export interface ActivityItem {
   supplierName: string | null;
   notes: string | null;
   createdAt: string;
+  staffUserId?: number | null;
+  staffName?: string | null;
 }
 
 export interface ReportData {
@@ -750,8 +752,18 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
   const canPerform = (capKey: "CAN_SELL" | "CAN_RECEIVE" | "CAN_COLLECT" | "CAN_COUNT" | "CAN_CHANGE_PRICE" | "CAN_CORRECT_TRANSACTIONS" | string): boolean => {
     if (!user) return false;
     if (user.role === "OWNER" || user.isPlatformAdmin) return true;
-    const caps = user.delegatedCapabilities || ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
-    return caps.includes(capKey);
+    const caps = (user.delegatedCapabilities && user.delegatedCapabilities.length > 0)
+      ? user.delegatedCapabilities
+      : ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
+    return (
+      caps.includes(capKey) ||
+      (capKey === "CAN_SELL" && caps.includes("SALE_CREATE")) ||
+      (capKey === "CAN_RECEIVE" && caps.includes("DELIVERY_CREATE")) ||
+      (capKey === "CAN_COLLECT" && caps.includes("PAYMENT_CREATE")) ||
+      (capKey === "CAN_COUNT" && caps.includes("STOCK_COUNT")) ||
+      (capKey === "CAN_CHANGE_PRICE" && caps.includes("SELLING_PRICE_CHANGE")) ||
+      (capKey === "CAN_CORRECT_TRANSACTIONS" && caps.includes("SALE_CORRECTION"))
+    );
   };
 
   const createStaffInvitation = async (
