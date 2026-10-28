@@ -70,6 +70,7 @@ function initPgMem() {
 
   runSqlFile("src/db/migrations/0000_shiny_moonstone.sql");
   runSqlFile("src/db/migrations/0002_commercial_tenants_and_invitations.sql");
+  runSqlFile("src/db/migrations/0003_offline_idempotency.sql");
 
   const adapter = mem.adapters.createPg();
   const rawPool = new adapter.Pool();

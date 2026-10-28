@@ -5,6 +5,17 @@ import type { EnrichedProduct, EnrichedCustomer, BusinessException } from "@/ser
 export type { EnrichedProduct, EnrichedCustomer, BusinessException };
 import type { BusinessPeriodMetrics } from "@/domain/debt";
 import type { Expense, AuditLog, DailyCashCheck } from "@/db/schema";
+import {
+  enqueueOfflineMutation,
+  getAllMutations,
+  syncAllPendingMutations,
+  syncSingleMutation,
+  deleteMutation,
+  clearSyncedMutations,
+  type OfflineMutation,
+  type OfflineMutationType,
+} from "@/lib/offlineQueue";
+export type { OfflineMutation, OfflineMutationType };
 
 export interface UserProfile {
   id: number;
@@ -213,6 +224,24 @@ interface StockContextType {
   removeBuyingItem: (id: number) => Promise<boolean>;
   clearCompletedBuyingItems: () => Promise<boolean>;
   resetWithDemoData: () => Promise<void>;
+
+  // Offline Architecture & Outbox
+  isOnline: boolean;
+  offlineQueue: OfflineMutation[];
+  isSyncingQueue: boolean;
+  isOfflineQueueOpen: boolean;
+  openOfflineQueue: () => void;
+  closeOfflineQueue: () => void;
+  syncQueueNow: () => Promise<void>;
+  retrySingleOfflineMutation: (mutation: OfflineMutation) => Promise<void>;
+  discardOfflineMutation: (id: string) => Promise<void>;
+  clearSyncedQueueItems: () => Promise<void>;
+  enqueueLocalMutation: (params: {
+    type: OfflineMutationType;
+    endpoint: string;
+    payload: any;
+    summary: string;
+  }) => Promise<OfflineMutation | null>;
 }
 
 const StockContext = createContext<StockContextType | undefined>(undefined);
@@ -279,6 +308,24 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
   const [selectedProduct, setSelectedProduct] = useState<EnrichedProduct | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<EnrichedCustomer | null>(null);
   const [selectedLedgerEntry, setSelectedLedgerEntry] = useState<ActivityItem | null>(null);
+
+  // Offline Architecture State & Outbox
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [offlineQueue, setOfflineQueue] = useState<OfflineMutation[]>([]);
+  const [isSyncingQueue, setIsSyncingQueue] = useState(false);
+  const [isOfflineQueueOpen, setIsOfflineQueueOpen] = useState(false);
+
+  const openOfflineQueue = () => setIsOfflineQueueOpen(true);
+  const closeOfflineQueue = () => setIsOfflineQueueOpen(false);
+
+  const refreshOfflineQueue = useCallback(async (currentUserId?: number) => {
+    try {
+      const q = await getAllMutations(currentUserId);
+      setOfflineQueue(q);
+    } catch {
+      // IndexedDB not ready
+    }
+  }, []);
 
   // Check auth session
   const checkAuth = useCallback(async () => {
@@ -643,12 +690,143 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     setSelectedLedgerEntry(null);
   };
 
+  // Enqueue local mutation to outbox
+  const enqueueLocalMutation = useCallback(
+    async (params: {
+      type: OfflineMutationType;
+      endpoint: string;
+      payload: any;
+      summary: string;
+    }): Promise<OfflineMutation | null> => {
+      if (!user) return null;
+      try {
+        const m = await enqueueOfflineMutation({
+          businessId: user.businessOwnerId || user.id,
+          userId: user.id,
+          userRole: user.role,
+          actorName: user.fullName,
+          type: params.type,
+          endpoint: params.endpoint,
+          payload: params.payload,
+          summary: params.summary,
+        });
+        await refreshOfflineQueue(user.id);
+        return m;
+      } catch (err) {
+        console.error("Failed to enqueue mutation:", err);
+        return null;
+      }
+    },
+    [user, refreshOfflineQueue]
+  );
+
+  // Sync entire pending queue
+  const syncQueueNow = useCallback(async () => {
+    if (!user || isSyncingQueue) return;
+    setIsSyncingQueue(true);
+    try {
+      await syncAllPendingMutations(user.id, user.role);
+      await refreshOfflineQueue(user.id);
+      await refreshData();
+    } catch (err) {
+      console.error("Failed to sync offline queue:", err);
+    } finally {
+      setIsSyncingQueue(false);
+    }
+  }, [user, isSyncingQueue, refreshOfflineQueue, refreshData]);
+
+  // Network online/offline event listeners
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    setIsOnline(navigator.onLine);
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (user?.id) {
+        syncQueueNow();
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [user?.id, syncQueueNow]);
+
+  // Load offline queue on user login or change
+  useEffect(() => {
+    if (user?.id) {
+      refreshOfflineQueue(user.id);
+    } else {
+      setOfflineQueue([]);
+    }
+  }, [user?.id, refreshOfflineQueue]);
+
+  const retrySingleOfflineMutation = async (mutation: OfflineMutation) => {
+    if (!user) return;
+    setIsSyncingQueue(true);
+    try {
+      await syncSingleMutation(mutation);
+      await refreshOfflineQueue(user.id);
+      await refreshData();
+    } finally {
+      setIsSyncingQueue(false);
+    }
+  };
+
+  const discardOfflineMutation = async (id: string) => {
+    await deleteMutation(id);
+    if (user?.id) await refreshOfflineQueue(user.id);
+  };
+
+  const clearSyncedQueueItems = async () => {
+    await clearSyncedMutations(user?.id);
+    if (user?.id) await refreshOfflineQueue(user.id);
+  };
+
   const recordPayment = async (
     customerId: number,
     amount: number,
     method?: string,
     notes?: string
   ): Promise<boolean> => {
+    const cust = customers.find((c) => c.id === customerId);
+    const summary = `Collected ₦${amount.toLocaleString()} from ${cust?.name || "Customer"}`;
+
+    // If completely offline, enqueue directly and apply optimistic local balance reduction
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      await enqueueLocalMutation({
+        type: "PAYMENT",
+        endpoint: "/api/customers",
+        payload: {
+          customerId,
+          amount,
+          paymentMethod: method || "CASH",
+          notes,
+        },
+        summary,
+      });
+
+      // Optimistic update
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customerId
+            ? { ...c, outstandingBalance: Math.max(0, c.outstandingBalance - amount) }
+            : c
+        )
+      );
+      setTotalOutstandingDebt((prev) => Math.max(0, prev - amount));
+      return true;
+    }
+
     try {
       const res = await fetch("/api/customers", {
         method: "POST",
@@ -667,7 +845,28 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       }
       return false;
     } catch {
-      return false;
+      // Network dropped during transmission -> enqueue to offline outbox
+      await enqueueLocalMutation({
+        type: "PAYMENT",
+        endpoint: "/api/customers",
+        payload: {
+          customerId,
+          amount,
+          paymentMethod: method || "CASH",
+          notes,
+        },
+        summary,
+      });
+
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customerId
+            ? { ...c, outstandingBalance: Math.max(0, c.outstandingBalance - amount) }
+            : c
+        )
+      );
+      setTotalOutstandingDebt((prev) => Math.max(0, prev - amount));
+      return true;
     }
   };
 
@@ -1093,6 +1292,17 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
         removeBuyingItem,
         clearCompletedBuyingItems,
         resetWithDemoData,
+        isOnline,
+        offlineQueue,
+        isSyncingQueue,
+        isOfflineQueueOpen,
+        openOfflineQueue,
+        closeOfflineQueue,
+        syncQueueNow,
+        retrySingleOfflineMutation,
+        discardOfflineMutation,
+        clearSyncedQueueItems,
+        enqueueLocalMutation,
       }}
     >
       {children}

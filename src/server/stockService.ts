@@ -545,34 +545,57 @@ export async function recordSale(params: {
   actorId?: number;
   actorName?: string;
   actorRole?: "OWNER" | "STAFF";
-  productId: number;
-  quantity: number;
+  productId?: number;
+  quantity?: number;
   unitPrice?: number;
+  items?: Array<{
+    productId: number;
+    quantity: number;
+    unitPrice?: number;
+  }>;
   customerId?: number | null;
   customerName?: string | null;
   amountPaid?: number;
   notes?: string;
   source?: "WEB" | "WHATSAPP";
   customDate?: Date;
+  idempotencyKey?: string | null;
 }) {
   const {
     userId,
     actorId = userId,
     actorName = "Shop Operator",
     actorRole = "OWNER",
-    productId,
-    quantity,
-    unitPrice,
     customerId,
     customerName,
     amountPaid = 0,
     notes,
     source = "WEB",
     customDate,
+    idempotencyKey,
   } = params;
 
-  if (quantity <= 0) {
-    throw new Error("Enter a quantity greater than 0.");
+  // 1. Idempotency replay check: If this clientTxId was already processed, return existing records
+  if (idempotencyKey && idempotencyKey.trim()) {
+    const existingSales = await db
+      .select()
+      .from(sales)
+      .where(and(eq(sales.userId, userId), eq(sales.idempotencyKey, idempotencyKey.trim())));
+
+    if (existingSales.length > 0) {
+      const existingLedgers = await db
+        .select()
+        .from(stockLedgerEntries)
+        .where(and(eq(stockLedgerEntries.userId, userId), eq(stockLedgerEntries.idempotencyKey, idempotencyKey.trim())));
+
+      return {
+        sale: existingSales[0],
+        sales: existingSales,
+        ledgerEntry: existingLedgers[0] || null,
+        ledgerEntries: existingLedgers,
+        isDuplicateReplay: true,
+      };
+    }
   }
 
   if (actorId) {
@@ -582,14 +605,21 @@ export async function recordSale(params: {
     }
   }
 
-  const [prod] = await db
-    .select()
-    .from(products)
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
-    .limit(1);
+  // Normalize items array: supports either multi-line array or single product params
+  const rawItems = params.items && params.items.length > 0
+    ? params.items
+    : (params.productId && params.quantity !== undefined
+        ? [{ productId: params.productId, quantity: params.quantity, unitPrice: params.unitPrice }]
+        : []);
 
-  if (!prod) {
-    throw new Error("Product not found or not owned by user.");
+  if (rawItems.length === 0) {
+    throw new Error("Please specify at least one product to sell.");
+  }
+
+  for (const it of rawItems) {
+    if (!it.quantity || it.quantity <= 0) {
+      throw new Error("Enter a quantity greater than 0 for all sold items.");
+    }
   }
 
   // Handle customer association
@@ -623,65 +653,120 @@ export async function recordSale(params: {
     }
   }
 
-  const pricePerUnit = unitPrice !== undefined && unitPrice > 0
-    ? unitPrice
-    : (prod.sellingPrice ? Number(prod.sellingPrice) : 0);
-
-  const totalAmount = quantity * pricePerUnit;
-  const paid = Math.min(totalAmount, Math.max(0, amountPaid));
-  const outstanding = Math.max(0, totalAmount - paid);
-  const paymentStatus = outstanding === 0 ? "PAID" : paid > 0 ? "PARTIAL" : "UNPAID";
   const saleTime = customDate || new Date();
 
-  // 1. Create authoritative sale record
-  const [saleRecord] = await db
-    .insert(sales)
-    .values({
-      userId,
-      staffUserId: actorId,
-      customerId: resolvedCustomerId,
-      productId,
-      quantity: String(quantity),
-      unitPrice: String(pricePerUnit),
-      totalAmount: String(totalAmount),
-      amountPaid: String(paid),
-      outstandingAmount: String(outstanding),
-      paymentStatus,
-      notes: notes || "Shop customer sale",
-      createdAt: saleTime,
-    })
-    .returning();
+  // Load and validate products
+  const productRows = await Promise.all(
+    rawItems.map(async (item) => {
+      const [prod] = await db
+        .select()
+        .from(products)
+        .where(and(eq(products.id, item.productId), eq(products.userId, userId)))
+        .limit(1);
 
-  // 2. Append to authoritative stock ledger: delta = -Math.abs(quantity)
-  const [ledgerEntry] = await db
-    .insert(stockLedgerEntries)
-    .values({
-      userId,
-      staffUserId: actorId,
-      productId,
-      saleId: saleRecord.id,
-      entryType: "SALE",
-      quantityDelta: String(-Math.abs(quantity)),
-      notes: notes || (resolvedCustomerId ? `Sale to ${resolvedCustomerName}` : "Sale recorded"),
-      createdAt: saleTime,
-    })
-    .returning();
+      if (!prod) {
+        throw new Error(`Product #${item.productId} not found or not owned by user.`);
+      }
 
-  // 3. Audit trail
+      const unitP = item.unitPrice !== undefined && item.unitPrice > 0
+        ? item.unitPrice
+        : (prod.sellingPrice ? Number(prod.sellingPrice) : 0);
+
+      const lineTotal = item.quantity * unitP;
+      return { item, prod, unitPrice: unitP, lineTotal };
+    })
+  );
+
+  const totalInvoiceAmount = productRows.reduce((sum, r) => sum + r.lineTotal, 0);
+  const totalPaid = Math.min(totalInvoiceAmount, Math.max(0, amountPaid));
+  const totalOutstanding = Math.max(0, totalInvoiceAmount - totalPaid);
+
+  let remainingDepositToAllocate = totalPaid;
+  const createdSales = [];
+  const createdLedgers = [];
+
+  for (let i = 0; i < productRows.length; i++) {
+    const { item, prod, unitPrice: itemUnitPrice, lineTotal } = productRows[i];
+
+    let linePaid = 0;
+    if (remainingDepositToAllocate >= lineTotal) {
+      linePaid = lineTotal;
+      remainingDepositToAllocate -= lineTotal;
+    } else {
+      linePaid = remainingDepositToAllocate;
+      remainingDepositToAllocate = 0;
+    }
+
+    const lineOutstanding = Math.max(0, lineTotal - linePaid);
+    const linePaymentStatus = lineOutstanding === 0 ? "PAID" : linePaid > 0 ? "PARTIAL" : "UNPAID";
+
+    const [saleRecord] = await db
+      .insert(sales)
+      .values({
+        userId,
+        staffUserId: actorId,
+        customerId: resolvedCustomerId,
+        productId: prod.id,
+        quantity: String(item.quantity),
+        unitPrice: String(itemUnitPrice),
+        totalAmount: String(lineTotal),
+        amountPaid: String(linePaid),
+        outstandingAmount: String(lineOutstanding),
+        paymentStatus: linePaymentStatus,
+        notes: notes || (productRows.length > 1 ? `Multi-item invoice item ${i + 1}/${productRows.length}` : "Shop customer sale"),
+        idempotencyKey: idempotencyKey ? idempotencyKey.trim() : null,
+        createdAt: saleTime,
+      })
+      .returning();
+
+    createdSales.push(saleRecord);
+
+    const [ledgerEntry] = await db
+      .insert(stockLedgerEntries)
+      .values({
+        userId,
+        staffUserId: actorId,
+        productId: prod.id,
+        saleId: saleRecord.id,
+        entryType: "SALE",
+        quantityDelta: String(-Math.abs(item.quantity)),
+        notes: notes || (resolvedCustomerId ? `Sale to ${resolvedCustomerName}` : "Sale recorded"),
+        idempotencyKey: idempotencyKey ? idempotencyKey.trim() : null,
+        createdAt: saleTime,
+      })
+      .returning();
+
+    createdLedgers.push(ledgerEntry);
+  }
+
+  // Audit trail
+  const itemsSummary = productRows
+    .map((r) => `${r.item.quantity} ${r.prod.unit} of ${r.prod.name}`)
+    .join(", ");
+
   await logAuditEvent({
     userId,
     actorId,
     actorName,
     actorRole,
     eventType: "SALE",
-    description: `${actorName} recorded a sale of ₦${totalAmount.toLocaleString()} (${quantity} ${prod.unit} of ${prod.name} to ${resolvedCustomerName})`,
+    description: `${actorName} recorded a sale of ₦${totalInvoiceAmount.toLocaleString()} (${itemsSummary} to ${resolvedCustomerName})`,
     entityType: "SALE",
-    entityId: saleRecord.id,
-    newValue: `₦${totalAmount}`,
+    entityId: createdSales[0]?.id,
+    newValue: `₦${totalInvoiceAmount}`,
     source,
   });
 
-  return { sale: saleRecord, ledgerEntry };
+  return {
+    sale: createdSales[0],
+    sales: createdSales,
+    ledgerEntry: createdLedgers[0],
+    ledgerEntries: createdLedgers,
+    totalAmount: totalInvoiceAmount,
+    amountPaid: totalPaid,
+    outstandingAmount: totalOutstanding,
+    isDuplicateReplay: false,
+  };
 }
 
 /**
@@ -791,6 +876,7 @@ export async function recordDelivery(params: {
   notes?: string;
   source?: "WEB" | "WHATSAPP";
   customDate?: Date;
+  idempotencyKey?: string | null;
 }) {
   const {
     userId,
@@ -804,7 +890,21 @@ export async function recordDelivery(params: {
     notes,
     source = "WEB",
     customDate,
+    idempotencyKey,
   } = params;
+
+  // Idempotency replay check
+  if (idempotencyKey && idempotencyKey.trim()) {
+    const existing = await db
+      .select()
+      .from(stockLedgerEntries)
+      .where(and(eq(stockLedgerEntries.userId, userId), eq(stockLedgerEntries.idempotencyKey, idempotencyKey.trim())))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return existing[0];
+    }
+  }
 
   if (quantityReceived <= 0) {
     throw new Error("Enter a received quantity greater than 0.");
@@ -845,6 +945,7 @@ export async function recordDelivery(params: {
       unitCost: validatedCost,
       supplierName: supplierName?.trim() || null,
       notes: notes || "Goods delivery received",
+      idempotencyKey: idempotencyKey ? idempotencyKey.trim() : null,
       createdAt: customDate || new Date(),
     })
     .returning();
@@ -941,6 +1042,7 @@ export async function recordStockCount(params: {
   productId: number;
   physicalCount: number;
   notes?: string;
+  idempotencyKey?: string | null;
 }) {
   const {
     userId,
@@ -950,7 +1052,27 @@ export async function recordStockCount(params: {
     productId,
     physicalCount,
     notes,
+    idempotencyKey,
   } = params;
+
+  // Idempotency replay check
+  if (idempotencyKey && idempotencyKey.trim()) {
+    const existing = await db
+      .select()
+      .from(stockLedgerEntries)
+      .where(and(eq(stockLedgerEntries.userId, userId), eq(stockLedgerEntries.idempotencyKey, idempotencyKey.trim())))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return {
+        entry: existing[0],
+        currentSystemStock: 0,
+        physicalCount: Number(existing[0].quantityDelta),
+        adjustmentDelta: Number(existing[0].quantityDelta),
+        isDuplicateReplay: true,
+      };
+    }
+  }
 
   if (actorId) {
     const authCtx = await getAuthContextForUser(actorId, actorRole);
@@ -994,6 +1116,7 @@ export async function recordStockCount(params: {
         `Physical count: ${physicalCount} ${prod.unit} (system was ${currentSystemStock}, difference: ${
           adjustmentDelta >= 0 ? `+${adjustmentDelta}` : adjustmentDelta
         })`,
+      idempotencyKey: idempotencyKey ? idempotencyKey.trim() : null,
       createdAt: new Date(),
     })
     .returning();
@@ -1015,7 +1138,7 @@ export async function recordStockCount(params: {
     reason: notes,
   });
 
-  return { entry, currentSystemStock, physicalCount, adjustmentDelta };
+  return { entry, currentSystemStock, physicalCount, adjustmentDelta, isDuplicateReplay: false };
 }
 
 // ==========================================
@@ -1085,6 +1208,7 @@ export async function recordCustomerPayment(params: {
   paymentMethod?: string;
   notes?: string;
   source?: "WEB" | "WHATSAPP";
+  idempotencyKey?: string | null;
 }) {
   const {
     userId,
@@ -1096,7 +1220,21 @@ export async function recordCustomerPayment(params: {
     paymentMethod = "CASH",
     notes,
     source = "WEB",
+    idempotencyKey,
   } = params;
+
+  // Idempotency replay check
+  if (idempotencyKey && idempotencyKey.trim()) {
+    const existing = await db
+      .select()
+      .from(customerPayments)
+      .where(and(eq(customerPayments.userId, userId), eq(customerPayments.idempotencyKey, idempotencyKey.trim())))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return existing[0];
+    }
+  }
 
   if (amount <= 0) {
     throw new Error("Enter a payment amount greater than 0.");
@@ -1128,6 +1266,7 @@ export async function recordCustomerPayment(params: {
       amount: String(amount),
       paymentMethod,
       notes: notes || `Debt recovery payment from ${cust.name}`,
+      idempotencyKey: idempotencyKey ? idempotencyKey.trim() : null,
       createdAt: new Date(),
     })
     .returning();

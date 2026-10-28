@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { POST as demoLoginPost } from "@/app/api/auth/demo-login/route";
+import * as authService from "@/server/authService";
 import { db } from "@/db";
 import { sessions, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -97,5 +98,49 @@ describe("Demo Login & Session Verification Tests", () => {
 
     expect(sessionInDb).toBeDefined();
     expect(sessionInDb.userId).toBe(json.user.id);
+  });
+
+  it("Prevents active Staff session from escalating to Owner or Platform Admin", async () => {
+    const spy = vi.spyOn(authService, "getCurrentUser").mockResolvedValueOnce({
+      id: 2,
+      email: "staff@buildingmaterials.com",
+      role: "STAFF",
+      isPlatformAdmin: false,
+    } as any);
+
+    const req = new Request("http://localhost/api/auth/demo-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "OWNER" }),
+    });
+
+    const res = await demoLoginPost(req);
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.success).toBe(false);
+    expect(json.error).toContain("Privilege escalation blocked");
+    spy.mockRestore();
+  });
+
+  it("Prevents active Business Owner session from switching to Platform Admin", async () => {
+    const spy = vi.spyOn(authService, "getCurrentUser").mockResolvedValueOnce({
+      id: 1,
+      email: "owner@buildingmaterials.com",
+      role: "OWNER",
+      isPlatformAdmin: false,
+    } as any);
+
+    const req = new Request("http://localhost/api/auth/demo-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "PLATFORM_ADMIN" }),
+    });
+
+    const res = await demoLoginPost(req);
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.success).toBe(false);
+    expect(json.error).toContain("Business Owners cannot enter Platform Admin");
+    spy.mockRestore();
   });
 });

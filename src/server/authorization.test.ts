@@ -8,6 +8,10 @@ import {
 
 describe("Capability-Based Authorization & Sensitivity Engine", () => {
   const activeOwnerContext: AuthContext = {
+    userId: 1,
+    email: "owner@distributor.com",
+    fullName: "Chief Musa",
+    isPlatformAdmin: false,
     user: {
       id: 1,
       email: "owner@distributor.com",
@@ -19,6 +23,7 @@ describe("Capability-Based Authorization & Sensitivity Engine", () => {
       name: "Musa Building Supplies",
       state: "ACTIVE",
       currency: "NGN",
+      ownerUserId: 1,
       subscriptionPlan: "STANDARD",
       subscriptionStatus: "ACTIVE",
       trialEndsAt: null,
@@ -33,6 +38,10 @@ describe("Capability-Based Authorization & Sensitivity Engine", () => {
   };
 
   const activeStaffContext: AuthContext = {
+    userId: 2,
+    email: "staff@distributor.com",
+    fullName: "Aliyu Operator",
+    isPlatformAdmin: false,
     user: {
       id: 2,
       email: "staff@distributor.com",
@@ -44,6 +53,7 @@ describe("Capability-Based Authorization & Sensitivity Engine", () => {
       name: "Musa Building Supplies",
       state: "ACTIVE",
       currency: "NGN",
+      ownerUserId: 1,
       subscriptionPlan: "STANDARD",
       subscriptionStatus: "ACTIVE",
       trialEndsAt: null,

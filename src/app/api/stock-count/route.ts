@@ -9,7 +9,10 @@ export async function POST(request: Request) {
     const user = await requireAuth();
     const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
-    const { productId, physicalCount, notes } = body;
+    const { productId, physicalCount, notes, idempotencyKey } = body;
+
+    const headerKey = request.headers.get("x-idempotency-key") || request.headers.get("x-client-tx-id");
+    const resolvedIdempotencyKey = (idempotencyKey || headerKey)?.trim() || undefined;
 
     if (!productId || isNaN(Number(productId))) {
       return NextResponse.json(
@@ -34,6 +37,7 @@ export async function POST(request: Request) {
       productId: Number(productId),
       physicalCount: count,
       notes,
+      idempotencyKey: resolvedIdempotencyKey,
     });
 
     return NextResponse.json({

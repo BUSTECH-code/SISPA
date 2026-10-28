@@ -5,7 +5,7 @@ import { useStock } from "@/context/StockContext";
 import { Truck, X, Check, AlertCircle, Lock } from "lucide-react";
 
 export function RecordDeliveryModal() {
-  const { activeModal, selectedProduct, products, isOwner, closeModal, refreshData } = useStock();
+  const { activeModal, selectedProduct, products, isOwner, closeModal, refreshData, enqueueLocalMutation } = useStock();
 
   const [productId, setProductId] = useState<number | string>("");
   const [quantityReceived, setQuantityReceived] = useState<string>("");
@@ -75,22 +75,51 @@ export function RecordDeliveryModal() {
     }
 
     setIsSubmitting(true);
+    const clientTxId = "delivery_" + Date.now() + "_" + Math.random().toString(36).substring(2, 9);
+    const deliveryPayload = {
+      productId: Number(productId),
+      quantityReceived: qty,
+      unitCost: isOwner && unitCost ? Number(unitCost) : null,
+      supplierName: supplierName.trim() || undefined,
+      notes: notes.trim() || undefined,
+      idempotencyKey: clientTxId,
+    };
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const summary = `Received ${qty} ${currentProduct?.unit || "units"} of ${currentProduct?.name || "goods"}`;
+      await enqueueLocalMutation({
+        type: "DELIVERY",
+        endpoint: "/api/deliveries",
+        payload: deliveryPayload,
+        summary,
+      });
+
+      const updatedTotal = (currentProduct ? currentProduct.currentStock : 0) + qty;
+      setConfirmedDelivery({
+        productName: currentProduct?.name || "Product",
+        unit: currentProduct?.unit || "units",
+        quantity: qty,
+        supplierName: supplierName.trim() || "Supplier",
+        unitCost: isOwner && unitCost ? Number(unitCost) : null,
+        newTotalStock: updatedTotal,
+      });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/deliveries", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: Number(productId),
-          quantityReceived: qty,
-          unitCost: isOwner && unitCost ? Number(unitCost) : null,
-          supplierName: supplierName.trim() || undefined,
-          notes: notes.trim() || undefined,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": clientTxId,
+        },
+        body: JSON.stringify(deliveryPayload),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        setErrorMessage(json.error || "This delivery could not be recorded. Nothing was changed. Please check your network connection and try again.");
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setErrorMessage(json?.error || "This delivery could not be recorded. Nothing was changed. Please check your network connection and try again.");
       } else {
         const updatedTotal = (currentProduct ? currentProduct.currentStock : 0) + qty;
         setConfirmedDelivery({
@@ -105,7 +134,23 @@ export function RecordDeliveryModal() {
         await refreshData();
       }
     } catch {
-      setErrorMessage("This delivery could not be recorded. Nothing was changed. Please check your network connection and try again.");
+      const summary = `Received ${qty} ${currentProduct?.unit || "units"} of ${currentProduct?.name || "goods"}`;
+      await enqueueLocalMutation({
+        type: "DELIVERY",
+        endpoint: "/api/deliveries",
+        payload: deliveryPayload,
+        summary,
+      });
+
+      const updatedTotal = (currentProduct ? currentProduct.currentStock : 0) + qty;
+      setConfirmedDelivery({
+        productName: currentProduct?.name || "Product",
+        unit: currentProduct?.unit || "units",
+        quantity: qty,
+        supplierName: supplierName.trim() || "Supplier",
+        unitCost: isOwner && unitCost ? Number(unitCost) : null,
+        newTotalStock: updatedTotal,
+      });
     } finally {
       setIsSubmitting(false);
     }

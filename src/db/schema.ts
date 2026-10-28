@@ -329,6 +329,7 @@ export const sales = pgTable(
     isCorrection: boolean("is_correction").notNull().default(false),
     originalSaleId: integer("original_sale_id"),
     correctionReason: text("correction_reason"),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -337,6 +338,7 @@ export const sales = pgTable(
     index("sales_product_id_idx").on(table.productId),
     index("sales_created_at_idx").on(table.createdAt),
     index("sales_payment_status_idx").on(table.paymentStatus),
+    index("sales_idempotency_key_idx").on(table.idempotencyKey),
   ]
 );
 
@@ -358,12 +360,14 @@ export const customerPayments = pgTable(
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
     paymentMethod: text("payment_method").notNull().default("CASH"), // 'CASH' | 'TRANSFER' | 'POS'
     notes: text("notes"),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("payments_user_id_idx").on(table.userId),
     index("payments_customer_id_idx").on(table.customerId),
     index("payments_created_at_idx").on(table.createdAt),
+    index("payments_idempotency_key_idx").on(table.idempotencyKey),
   ]
 );
 
@@ -414,6 +418,7 @@ export const stockLedgerEntries = pgTable(
     unitCost: numeric("unit_cost", { precision: 12, scale: 2 }), // Confidential purchase price
     supplierName: text("supplier_name"),
     notes: text("notes"),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -422,6 +427,7 @@ export const stockLedgerEntries = pgTable(
     index("ledger_sale_id_idx").on(table.saleId),
     index("ledger_created_at_idx").on(table.createdAt),
     index("ledger_entry_type_idx").on(table.entryType),
+    index("ledger_idempotency_key_idx").on(table.idempotencyKey),
   ]
 );
 

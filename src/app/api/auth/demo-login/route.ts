@@ -23,6 +23,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Prevent privilege escalation: Business Owners cannot enter Platform Admin through role switching
+    if (currentUser && !currentUser.isPlatformAdmin && role === "PLATFORM_ADMIN") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Privilege escalation blocked. Business Owners cannot enter Platform Admin through role switching. Sign out first.",
+        },
+        { status: 403 }
+      );
+    }
+
     let targetEmail = "owner@buildingmaterials.com";
     if (role === "STAFF") {
       targetEmail = "staff@buildingmaterials.com";

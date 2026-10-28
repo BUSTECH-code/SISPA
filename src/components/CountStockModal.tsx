@@ -52,20 +52,46 @@ export function CountStockModal() {
     }
 
     setIsSubmitting(true);
+    const clientTxId = "count_" + Date.now() + "_" + Math.random().toString(36).substring(2, 9);
+    const countPayload = {
+      productId: Number(productId),
+      physicalCount: countNumber,
+      notes: notes.trim() || undefined,
+      idempotencyKey: clientTxId,
+    };
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const summary = `Stock count for ${currentProduct?.name || "Product"}: counted ${countNumber} ${currentProduct?.unit || "units"} (${difference !== 0 ? `${difference > 0 ? "+" : ""}${difference} adjustment` : "exact match"})`;
+      await enqueueLocalMutation({
+        type: "STOCK_COUNT",
+        endpoint: "/api/stock-count",
+        payload: countPayload,
+        summary,
+      });
+
+      setConfirmedCount({
+        productName: currentProduct?.name || "Product",
+        unit: currentProduct?.unit || "units",
+        counted: countNumber,
+        difference: difference || 0,
+      });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/stock-count", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: Number(productId),
-          physicalCount: countNumber,
-          notes: notes.trim() || undefined,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": clientTxId,
+        },
+        body: JSON.stringify(countPayload),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        setErrorMessage(json.error || "This stock count could not be recorded. Nothing was changed. Please check your network connection and try again.");
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        setErrorMessage(json?.error || "This stock count could not be recorded. Nothing was changed. Please check your network connection and try again.");
       } else {
         setConfirmedCount({
           productName: currentProduct?.name || "Product",
@@ -77,7 +103,20 @@ export function CountStockModal() {
         await refreshData();
       }
     } catch {
-      setErrorMessage("This stock count could not be recorded. Nothing was changed. Please check your network connection and try again.");
+      const summary = `Stock count for ${currentProduct?.name || "Product"}: counted ${countNumber} ${currentProduct?.unit || "units"} (${difference !== 0 ? `${difference > 0 ? "+" : ""}${difference} adjustment` : "exact match"})`;
+      await enqueueLocalMutation({
+        type: "STOCK_COUNT",
+        endpoint: "/api/stock-count",
+        payload: countPayload,
+        summary,
+      });
+
+      setConfirmedCount({
+        productName: currentProduct?.name || "Product",
+        unit: currentProduct?.unit || "units",
+        counted: countNumber,
+        difference: difference || 0,
+      });
     } finally {
       setIsSubmitting(false);
     }

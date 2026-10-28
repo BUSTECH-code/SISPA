@@ -41,7 +41,10 @@ export async function POST(request: Request) {
     const user = await requireAuth();
     const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
-    const { customerId, amount, paymentMethod, notes } = body;
+    const { customerId, amount, paymentMethod, notes, idempotencyKey } = body;
+
+    const headerKey = request.headers.get("x-idempotency-key") || request.headers.get("x-client-tx-id");
+    const resolvedIdempotencyKey = (idempotencyKey || headerKey)?.trim() || undefined;
 
     if (!customerId || isNaN(Number(customerId))) {
       return NextResponse.json(
@@ -67,6 +70,7 @@ export async function POST(request: Request) {
       amount: payAmount,
       paymentMethod: paymentMethod || "CASH",
       notes: notes?.trim() || undefined,
+      idempotencyKey: resolvedIdempotencyKey,
     });
 
     return NextResponse.json({

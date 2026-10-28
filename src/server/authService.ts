@@ -933,8 +933,10 @@ export async function getCurrentUser(): Promise<User | null> {
     }
 
     return user;
-  } catch (err) {
-    console.error("Error retrieving current user:", err);
+  } catch (err: any) {
+    if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+      console.error("Error retrieving current user:", err);
+    }
     return null;
   }
 }
