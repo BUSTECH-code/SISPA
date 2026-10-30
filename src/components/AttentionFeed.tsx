@@ -162,99 +162,123 @@ export function AttentionFeed() {
         </div>
       </div>
 
-      {/* 2. LAYER 1: TODAY'S FINANCIAL PULSE (3 Key Numbers) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Sales Today */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-            Sales Today
-          </span>
-          <div className="mt-1 text-2xl sm:text-3xl font-black text-slate-900">
-            ₦{todaySalesTotal.toLocaleString()}
-          </div>
-          <p className="mt-1 text-xs text-slate-600">Total goods sold across all sales</p>
+      {/* 2. QUESTION 1: WHAT HAPPENED? (Today's Business Pulse) */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+            1. What Happened? (Store Pulse)
+          </h2>
+          <span className="text-[11px] text-slate-500">Live operational ledger</span>
         </div>
-
-        {/* Cash Collected Today */}
-        <div className="rounded-3xl border border-emerald-200/90 bg-linear-to-br from-white to-emerald-50/40 p-4 sm:p-5 shadow-2xs">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-900">
-            Cash Collected
-          </span>
-          <div className="mt-1 text-2xl sm:text-3xl font-black text-emerald-900">
-            ₦{todayCollectedTotal.toLocaleString()}
-          </div>
-          <p className="mt-1 text-xs text-emerald-800/80">Cash &amp; bank transfers received</p>
-        </div>
-
-        {/* Customers Owing */}
-        <div
-          onClick={() => setActiveTab("DEBT")}
-          className="cursor-pointer group rounded-3xl border border-red-200/90 bg-linear-to-br from-white to-red-50/40 p-4 sm:p-5 shadow-2xs hover:border-red-300 transition-all"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-red-900">
-              Customers Owing
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Sales Today */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              Sales Today
             </span>
-            <ArrowRight className="h-4 w-4 text-red-600 group-hover:translate-x-1 transition-transform" />
+            <div className="mt-1 text-2xl sm:text-3xl font-black text-slate-900">
+              ₦{todaySalesTotal.toLocaleString()}
+            </div>
+            <p className="mt-1 text-xs text-slate-600">Total goods sold across all sales</p>
           </div>
-          <div className="mt-1 text-2xl sm:text-3xl font-black text-red-900">
-            ₦{totalOutstandingDebt.toLocaleString()}
+
+          {/* Cash Collected Today */}
+          <div className="rounded-3xl border border-emerald-200/90 bg-linear-to-br from-white to-emerald-50/40 p-4 sm:p-5 shadow-2xs">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-900">
+              Cash Collected
+            </span>
+            <div className="mt-1 text-2xl sm:text-3xl font-black text-emerald-900">
+              ₦{todayCollectedTotal.toLocaleString()}
+            </div>
+            <p className="mt-1 text-xs text-emerald-800/80">Cash &amp; bank transfers received</p>
           </div>
-          <p className="mt-1 text-xs text-red-800/80">
-            {debtorsCount > 0 ? `${debtorsCount} customers with unpaid debt` : "All customer accounts clear"}
-          </p>
+
+          {/* Customers Owing */}
+          <div
+            onClick={() => setActiveTab("DEBT")}
+            className="cursor-pointer group rounded-3xl border border-red-200/90 bg-linear-to-br from-white to-red-50/40 p-4 sm:p-5 shadow-2xs hover:border-red-300 transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-900">
+                Customers Owing
+              </span>
+              <ArrowRight className="h-4 w-4 text-red-600 group-hover:translate-x-1 transition-transform" />
+            </div>
+            <div className="mt-1 text-2xl sm:text-3xl font-black text-red-900">
+              ₦{totalOutstandingDebt.toLocaleString()}
+            </div>
+            <p className="mt-1 text-xs text-red-800/80">
+              {debtorsCount > 0 ? `${debtorsCount} customers with unpaid debt` : "All customer accounts clear"}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* 3. LAYER 2: IMMEDIATE OPERATIONAL ACTIONS (4 Primary Buttons) */}
-      <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2.5 px-1">
-          Immediate Actions
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {/* Sell */}
+      {/* 3. QUESTION 3: WHAT SHOULD I DO NEXT? (5 Primary Operations) */}
+      <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4 space-y-2.5">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+            2. What Should I Do Next? (Core Jobs)
+          </h2>
+          <span className="text-[11px] text-slate-500">Prioritized for counter speed</span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {/* 1. Sell */}
           <button
             onClick={() => openRecordSale()}
-            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-amber-600 px-4 py-3 font-black text-sm text-white shadow-xs hover:bg-amber-700 transition-transform active:scale-95"
+            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-amber-600 px-3 py-3 font-black text-xs sm:text-sm text-white shadow-xs hover:bg-amber-700 transition-transform active:scale-95"
           >
-            <ArrowUpRight className="h-5 w-5" />
+            <ArrowUpRight className="h-4 w-4" />
             <span>Sell Goods</span>
           </button>
 
-          {/* Receive */}
+          {/* 2. Receive */}
           <button
             onClick={() => openRecordDelivery()}
-            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 font-black text-sm text-white shadow-xs hover:bg-slate-800 transition-transform active:scale-95"
+            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-slate-900 px-3 py-3 font-black text-xs sm:text-sm text-white shadow-xs hover:bg-slate-800 transition-transform active:scale-95"
           >
-            <ArrowDownLeft className="h-5 w-5" />
-            <span>Receive Delivery</span>
+            <ArrowDownLeft className="h-4 w-4" />
+            <span>Receive Goods</span>
           </button>
 
-          {/* Collect */}
+          {/* 3. Collect */}
           <button
             onClick={() => openRecordPayment()}
-            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 font-black text-sm text-white shadow-xs hover:bg-emerald-700 transition-transform active:scale-95"
+            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 py-3 font-black text-xs sm:text-sm text-white shadow-xs hover:bg-emerald-700 transition-transform active:scale-95"
           >
-            <CreditCard className="h-5 w-5" />
+            <CreditCard className="h-4 w-4" />
             <span>Collect Money</span>
           </button>
 
-          {/* Buy */}
+          {/* 4. Buy */}
           <button
             onClick={() => setActiveTab("BUYING")}
-            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 font-black text-sm text-slate-900 shadow-2xs hover:bg-slate-100 transition-transform active:scale-95"
+            className="flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-3 font-black text-xs sm:text-sm text-slate-900 shadow-2xs hover:bg-slate-100 transition-transform active:scale-95"
           >
-            <ShoppingCart className="h-5 w-5 text-amber-600" />
+            <ShoppingCart className="h-4 w-4 text-amber-600" />
             <span>Restock (Buy)</span>
+          </button>
+
+          {/* 5. Check Stock */}
+          <button
+            onClick={() => openStockCheck()}
+            className="col-span-2 sm:col-span-1 flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-3 font-black text-xs sm:text-sm text-slate-900 shadow-2xs hover:bg-slate-100 transition-transform active:scale-95"
+          >
+            <CheckSquare className="h-4 w-4 text-purple-600" />
+            <span>Check Stock</span>
           </button>
         </div>
       </div>
 
-      {/* 4. LAYER 2: NEEDS ATTENTION (Direct Verbs) */}
+      {/* 4. QUESTION 2: WHAT NEEDS MY ATTENTION? (Urgent Action Triggers) */}
       <div className="space-y-2.5">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 px-1">
-          Needs Attention
-        </h2>
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+            3. What Needs My Attention?
+          </h2>
+          <span className="text-[11px] text-slate-500">Actionable alerts only</span>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
           {/* Restock trigger */}

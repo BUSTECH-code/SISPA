@@ -15,7 +15,9 @@ import {
   CreditCard,
   MoreHorizontal,
   History,
+  WifiOff,
 } from "lucide-react";
+import { PWAInstallButton } from "./PWAInstallButton";
 
 export function Navbar() {
   const {
@@ -33,9 +35,15 @@ export function Navbar() {
     isLoading,
     refreshData,
     canPerform,
+    isOnline,
+    offlineQueue,
+    openOfflineQueue,
   } = useStock();
 
   const pendingBuyingCount = buyingList.filter((i) => !i.isCompleted).length;
+  const pendingOfflineCount = offlineQueue.filter(
+    (m) => m.status === "PENDING" || m.status === "FAILED" || m.status === "SYNCING"
+  ).length;
 
   return (
     <header className="sticky top-0 z-40 border-b border-amber-900/10 bg-white/95 backdrop-blur-md shadow-xs">
@@ -267,6 +275,25 @@ export function Navbar() {
                     <span>Activity</span>
                   </button>
                 </div>
+              )}
+
+              {/* PWA Install Button */}
+              <PWAInstallButton compact />
+
+              {/* Offline / Pending Queue Indicator */}
+              {(!isOnline || pendingOfflineCount > 0) && (
+                <button
+                  onClick={openOfflineQueue}
+                  title="Inspect offline outbox"
+                  className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-bold transition-all ${
+                    !isOnline
+                      ? "bg-red-600 text-white shadow-xs"
+                      : "bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200"
+                  }`}
+                >
+                  {!isOnline ? <WifiOff className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  <span>{pendingOfflineCount > 0 ? `${pendingOfflineCount} queued` : "Offline"}</span>
+                </button>
               )}
 
               {/* Refresh data */}

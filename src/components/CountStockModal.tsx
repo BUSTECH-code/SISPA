@@ -5,7 +5,7 @@ import { useStock } from "@/context/StockContext";
 import { Scale, X, Check, AlertCircle, ArrowRight } from "lucide-react";
 
 export function CountStockModal() {
-  const { activeModal, selectedProduct, products, closeModal, refreshData } = useStock();
+  const { activeModal, selectedProduct, products, closeModal, refreshData, enqueueLocalMutation } = useStock();
 
   const [productId, setProductId] = useState<number | string>("");
   const [physicalCount, setPhysicalCount] = useState<string>("");
@@ -52,6 +52,7 @@ export function CountStockModal() {
     }
 
     setIsSubmitting(true);
+    const diffVal = difference ?? 0;
     const clientTxId = "count_" + Date.now() + "_" + Math.random().toString(36).substring(2, 9);
     const countPayload = {
       productId: Number(productId),
@@ -61,7 +62,7 @@ export function CountStockModal() {
     };
 
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      const summary = `Stock count for ${currentProduct?.name || "Product"}: counted ${countNumber} ${currentProduct?.unit || "units"} (${difference !== 0 ? `${difference > 0 ? "+" : ""}${difference} adjustment` : "exact match"})`;
+      const summary = `Stock count for ${currentProduct?.name || "Product"}: counted ${countNumber} ${currentProduct?.unit || "units"} (${diffVal !== 0 ? `${diffVal > 0 ? "+" : ""}${diffVal} adjustment` : "exact match"})`;
       await enqueueLocalMutation({
         type: "STOCK_COUNT",
         endpoint: "/api/stock-count",
@@ -103,7 +104,7 @@ export function CountStockModal() {
         await refreshData();
       }
     } catch {
-      const summary = `Stock count for ${currentProduct?.name || "Product"}: counted ${countNumber} ${currentProduct?.unit || "units"} (${difference !== 0 ? `${difference > 0 ? "+" : ""}${difference} adjustment` : "exact match"})`;
+      const summary = `Stock count for ${currentProduct?.name || "Product"}: counted ${countNumber} ${currentProduct?.unit || "units"} (${diffVal !== 0 ? `${diffVal > 0 ? "+" : ""}${diffVal} adjustment` : "exact match"})`;
       await enqueueLocalMutation({
         type: "STOCK_COUNT",
         endpoint: "/api/stock-count",

@@ -103,8 +103,6 @@ export function RecordSaleModal() {
     }
   }, [activeModal, selectedProduct, products]);
 
-  if (activeModal !== "SALE") return null;
-
   // Calculate totals
   const totalSaleAmount = items.reduce((acc, it) => {
     const q = Number(it.quantity) || 0;
@@ -122,6 +120,8 @@ export function RecordSaleModal() {
   }, [paymentMethod, amountPaidCustom, totalSaleAmount]);
 
   const debtCreated = Math.max(0, totalSaleAmount - calculatedAmountPaid);
+
+  if (activeModal !== "SALE") return null;
 
   // Helpers for line items
   const handleItemChange = (index: number, field: "productId" | "quantity" | "unitPrice", value: any) => {

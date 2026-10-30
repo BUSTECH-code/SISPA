@@ -30,6 +30,8 @@ import { StaffManagementModal } from "./StaffManagementModal";
 import { UpdateDeliveryCostModal } from "./UpdateDeliveryCostModal";
 import { SaleCorrectionModal } from "./SaleCorrectionModal";
 import { AuthModal } from "./AuthModal";
+import { OfflineIndicator } from "./OfflineIndicator";
+import { OfflineQueueModal } from "./OfflineQueueModal";
 import { ShieldAlert, ArrowRight } from "lucide-react";
 
 function PlatformAdminZeroAccessGuard({
@@ -187,6 +189,8 @@ export function MainApp() {
       <UpdateDeliveryCostModal />
       <SaleCorrectionModal />
       <AuthModal />
+      <OfflineIndicator />
+      <OfflineQueueModal />
     </div>
   );
 }
