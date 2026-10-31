@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useStock } from "@/context/StockContext";
+import { sortProducts, StockSortOption } from "@/domain/stockSorting";
 import { ProductCard } from "./ProductCard";
 import {
   Search,
@@ -20,6 +21,7 @@ export function StockListView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [sortBy, setSortBy] = useState<StockSortOption>("URGENCY");
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -28,7 +30,7 @@ export function StockListView() {
   }, [products]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    const filtered = products.filter((p) => {
       // Search
       const matchesSearch =
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -54,7 +56,9 @@ export function StockListView() {
 
       return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [products, searchQuery, selectedCategory, statusFilter]);
+
+    return sortProducts(filtered, sortBy);
+  }, [products, searchQuery, selectedCategory, statusFilter, sortBy]);
 
   return (
     <div className="space-y-6 pb-20">
@@ -172,25 +176,40 @@ export function StockListView() {
           )}
         </div>
 
-        {/* Category Pill Filters */}
-        {categories.length > 2 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-            <span className="text-slate-400 font-medium pl-1">Category:</span>
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`rounded-lg px-2.5 py-1 font-semibold transition-colors whitespace-nowrap ${
-                  selectedCategory === cat
-                    ? "bg-amber-100 text-amber-900 border border-amber-300"
-                    : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {cat === "ALL" ? "All Categories" : cat}
-              </button>
-            ))}
+        {/* Category Pill Filters & Sort Dropdown */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 border-t border-slate-100">
+          {categories.length > 2 ? (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              <span className="text-slate-400 font-medium pl-1">Category:</span>
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`rounded-lg px-2.5 py-1 font-semibold transition-colors whitespace-nowrap ${
+                    selectedCategory === cat
+                      ? "bg-amber-100 text-amber-900 border border-amber-300"
+                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {cat === "ALL" ? "All Categories" : cat}
+                </button>
+              ))}
+            </div>
+          ) : <div />}
+
+          <div className="flex items-center gap-1.5 text-xs self-start sm:self-auto shrink-0">
+            <span className="text-slate-500 font-semibold">Sort by:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as StockSortOption)}
+              className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 shadow-2xs focus:border-amber-600 focus:outline-hidden cursor-pointer"
+            >
+              <option value="URGENCY">Days Remaining (Lowest first)</option>
+              <option value="NAME_ASC">Product Name (A–Z)</option>
+              <option value="STOCK_ASC">Current Stock (Lowest first)</option>
+            </select>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Product Grid */}
@@ -215,6 +234,7 @@ export function StockListView() {
                 setSearchQuery("");
                 setSelectedCategory("ALL");
                 setStatusFilter("ALL");
+                setSortBy("URGENCY");
               }
             }}
             className="mt-3 text-xs font-bold text-amber-700 hover:underline"

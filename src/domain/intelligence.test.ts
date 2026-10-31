@@ -5,6 +5,7 @@ import {
   calculateSuggestedPurchaseQuantity,
   calculateStockIntelligence,
   calculateVelocity,
+  formatDaysRemainingDisplay,
 } from "./intelligence";
 
 describe("SISPA 1.0 Domain Intelligence - Approved Test Cases", () => {
@@ -186,4 +187,80 @@ describe("SISPA 1.0 Domain Intelligence - Approved Test Cases", () => {
       expect(velocity).toBe(0);
     });
   });
+
+  describe("Days of Stock Remaining Domain Formatting", () => {
+    it("classifies negative stock as DISCREPANCY with 'Stock discrepancy'", () => {
+      const res = formatDaysRemainingDisplay(-5, 2, -2.5);
+      expect(res).toEqual({ tier: "DISCREPANCY", text: "Stock discrepancy", days: null });
+    });
+
+    it("classifies zero stock as OUT_OF_STOCK with 'Out of stock'", () => {
+      const res = formatDaysRemainingDisplay(0, 5, 0);
+      expect(res).toEqual({ tier: "OUT_OF_STOCK", text: "Out of stock", days: 0 });
+    });
+
+    it("classifies null velocity as NO_ESTIMATE with 'No estimate'", () => {
+      const res = formatDaysRemainingDisplay(50, null, null);
+      expect(res).toEqual({ tier: "NO_ESTIMATE", text: "No estimate", days: null });
+    });
+
+    it("classifies zero velocity with positive stock as NO_SALES with 'No recent sales'", () => {
+      const res = formatDaysRemainingDisplay(50, 0, Infinity);
+      expect(res).toEqual({ tier: "NO_SALES", text: "No recent sales", days: Infinity });
+    });
+
+    it("classifies days < 1 as CRITICAL with 'Less than 1 day'", () => {
+      const res = formatDaysRemainingDisplay(3, 5, 0.6);
+      expect(res).toEqual({ tier: "CRITICAL", text: "Less than 1 day", days: 0.6 });
+    });
+
+    it("classifies 1 <= days <= 3 as CRITICAL with 'Critical — X days' without rounding up", () => {
+      // Fractional estimate formatted to 1 decimal place
+      const res1 = formatDaysRemainingDisplay(10, 4, 2.58);
+      expect(res1).toEqual({ tier: "CRITICAL", text: "Critical — 2.5 days", days: 2.5 });
+
+      // Whole number 1 omits decimal and uses singular 'day'
+      const res2 = formatDaysRemainingDisplay(10, 10, 1.0);
+      expect(res2).toEqual({ tier: "CRITICAL", text: "Critical — 1 day", days: 1 });
+
+      // Whole number 3 omits decimal
+      const res3 = formatDaysRemainingDisplay(30, 10, 3.0);
+      expect(res3).toEqual({ tier: "CRITICAL", text: "Critical — 3 days", days: 3 });
+    });
+
+    it("classifies 3 < days <= 7 as LOW and uses unrounded value for tier classification", () => {
+      // 3.01 is strictly > 3 so tier is LOW; fractional part is formatted to 1 decimal without upward rounding -> 3.0
+      const resBoundary = formatDaysRemainingDisplay(30.1, 10, 3.01);
+      expect(resBoundary).toEqual({ tier: "LOW", text: "Low — 3.0 days", days: 3.0 });
+
+      // Whole number 5 omits decimal
+      const resWhole = formatDaysRemainingDisplay(25, 5, 5.0);
+      expect(resWhole).toEqual({ tier: "LOW", text: "Low — 5 days", days: 5 });
+
+      // Fractional 4.49 truncates to 4.4 without rounding up
+      const resFraction = formatDaysRemainingDisplay(22, 5, 4.49);
+      expect(resFraction).toEqual({ tier: "LOW", text: "Low — 4.4 days", days: 4.4 });
+    });
+
+    it("classifies days > 7 as NORMAL with 'X days remaining'", () => {
+      // Whole number 10 omits decimal
+      const res1 = formatDaysRemainingDisplay(100, 10, 10.0);
+      expect(res1).toEqual({ tier: "NORMAL", text: "10 days remaining", days: 10 });
+
+      // Fractional 14.42 truncates to 14.4
+      const res2 = formatDaysRemainingDisplay(75, 5.2, 14.42);
+      expect(res2).toEqual({ tier: "NORMAL", text: "14.4 days remaining", days: 14.4 });
+
+      // Fractional 7.05 truncates to 7.0
+      const res3 = formatDaysRemainingDisplay(70.5, 10, 7.05);
+      expect(res3).toEqual({ tier: "NORMAL", text: "7.0 days remaining", days: 7.0 });
+    });
+
+    it("safely handles invalid, NaN, or non-finite numbers without emitting 'NaN'", () => {
+      expect(formatDaysRemainingDisplay(NaN, 5, NaN)).toEqual({ tier: "DISCREPANCY", text: "Stock discrepancy", days: null });
+      expect(formatDaysRemainingDisplay(10, NaN as any, NaN)).toEqual({ tier: "NO_ESTIMATE", text: "No estimate", days: null });
+      expect(formatDaysRemainingDisplay(10, 5, NaN)).toEqual({ tier: "NO_ESTIMATE", text: "No estimate", days: null });
+    });
+  });
 });
+

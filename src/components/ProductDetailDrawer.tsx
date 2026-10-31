@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { useStock } from "@/context/StockContext";
+import { formatDaysRemainingDisplay } from "@/domain/intelligence";
+import { getDaysRemainingBadgeStyle } from "@/utils/stockDisplay";
 import type { StockLedgerEntry } from "@/db/schema";
 import {
   X,
@@ -121,6 +123,9 @@ export function ProductDetailDrawer() {
 
   const { status, daysRemaining, velocity, suggestedPurchaseQuantity, explanation } =
     selectedProduct.intelligence;
+  const daysDisplay = selectedProduct.intelligence.daysRemainingDisplay ||
+    formatDaysRemainingDisplay(selectedProduct.currentStock, velocity, daysRemaining);
+  const daysStyle = getDaysRemainingBadgeStyle(daysDisplay.tier);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 p-0 sm:p-4 backdrop-blur-xs">
@@ -156,12 +161,8 @@ export function ProductDetailDrawer() {
 
             <div className="rounded-xl bg-white p-2.5 border border-slate-200/80 shadow-2xs">
               <div className="text-[11px] font-semibold text-slate-500 uppercase">Estimated Left</div>
-              <div className="text-lg sm:text-xl font-black text-amber-800">
-                {daysRemaining !== null
-                  ? daysRemaining === Infinity
-                    ? "Steady"
-                    : `~${Math.round(daysRemaining)} days`
-                  : "Calculating"}
+              <div className={`text-base sm:text-lg font-black ${daysStyle.textClasses}`}>
+                {daysDisplay.text}
               </div>
             </div>
 

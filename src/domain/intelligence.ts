@@ -11,6 +11,21 @@
 
 export type AttentionStatus = "RUNNING_LOW" | "CHECK_SOON" | "OK" | "NO_DATA";
 
+export type DaysRemainingTier =
+  | "DISCREPANCY"
+  | "OUT_OF_STOCK"
+  | "CRITICAL"
+  | "LOW"
+  | "NORMAL"
+  | "NO_SALES"
+  | "NO_ESTIMATE";
+
+export interface DaysRemainingDisplay {
+  tier: DaysRemainingTier;
+  text: string;
+  days: number | null;
+}
+
 export interface StockCalculationInput {
   currentStock: number;
   velocity: number | null;
@@ -23,6 +38,7 @@ export interface StockIntelligenceResult {
   effectiveStock: number;
   velocity: number | null;
   daysRemaining: number | null;
+  daysRemainingDisplay?: DaysRemainingDisplay;
   status: AttentionStatus;
   suggestedPurchaseQuantity: number;
   targetStock: number | null;
@@ -113,6 +129,130 @@ export function calculateDaysRemaining(currentStock: number, velocity: number | 
     return Infinity;
   }
   return currentStock / velocity;
+}
+
+/**
+ * Format a day count to at most one decimal place without upward rounding.
+ * Whole numbers omit the decimal.
+ */
+function formatDaysNumber(val: number): { formatted: string; value: number } {
+  const truncated = Math.floor(val * 10) / 10;
+  if (Number.isInteger(val)) {
+    return { formatted: `${val}`, value: val };
+  }
+  return { formatted: truncated.toFixed(1), value: truncated };
+}
+
+/**
+ * Format and classify Days of Stock Remaining.
+ * 
+ * Rules:
+ * - Domain layer must remain pure: strictly no Tailwind CSS classes or HTML.
+ * - Negative stock -> DISCREPANCY ("Stock discrepancy")
+ * - Zero stock -> OUT_OF_STOCK ("Out of stock")
+ * - Insufficient history or invalid velocity -> NO_ESTIMATE ("No estimate")
+ * - Zero velocity with positive stock -> NO_SALES ("No recent sales")
+ * - Invalid/NaN values -> guarded safely
+ * - Classification evaluates raw unrounded daysRemaining:
+ *     - < 1 day -> CRITICAL ("Less than 1 day")
+ *     - 1 <= days <= 3 -> CRITICAL ("Critical — X day(s)")
+ *     - 3 < days <= 7 -> LOW ("Low — X day(s)")
+ *     - > 7 -> NORMAL ("X days remaining")
+ * - Fractional estimates truncated to 1 decimal place without upward rounding; whole numbers omit decimal.
+ */
+export function formatDaysRemainingDisplay(
+  currentStock: number,
+  velocity: number | null,
+  daysRemaining: number | null
+): DaysRemainingDisplay {
+  // 1. Negative stock or non-numeric stock
+  if (typeof currentStock !== "number" || isNaN(currentStock) || currentStock < 0) {
+    return {
+      tier: "DISCREPANCY",
+      text: "Stock discrepancy",
+      days: null,
+    };
+  }
+
+  // 2. Zero stock
+  if (currentStock === 0) {
+    return {
+      tier: "OUT_OF_STOCK",
+      text: "Out of stock",
+      days: 0,
+    };
+  }
+
+  // 3. Insufficient history or non-numeric/null velocity
+  if (
+    velocity === null ||
+    velocity === undefined ||
+    typeof velocity !== "number" ||
+    isNaN(velocity)
+  ) {
+    return {
+      tier: "NO_ESTIMATE",
+      text: "No estimate",
+      days: null,
+    };
+  }
+
+  // 4. Zero sales velocity (with positive stock)
+  if (velocity === 0) {
+    return {
+      tier: "NO_SALES",
+      text: "No recent sales",
+      days: Infinity,
+    };
+  }
+
+  // 5. Invalid daysRemaining guard
+  if (
+    daysRemaining === null ||
+    daysRemaining === undefined ||
+    typeof daysRemaining !== "number" ||
+    isNaN(daysRemaining)
+  ) {
+    return {
+      tier: "NO_ESTIMATE",
+      text: "No estimate",
+      days: null,
+    };
+  }
+
+  // 6. Finite positive stock and positive velocity
+  if (daysRemaining < 1) {
+    return {
+      tier: "CRITICAL",
+      text: "Less than 1 day",
+      days: daysRemaining,
+    };
+  }
+
+  const { formatted, value } = formatDaysNumber(daysRemaining);
+  const dayUnit = value === 1 ? "day" : "days";
+
+  if (daysRemaining <= 3) {
+    return {
+      tier: "CRITICAL",
+      text: `Critical — ${formatted} ${dayUnit}`,
+      days: value,
+    };
+  }
+
+  if (daysRemaining <= 7) {
+    return {
+      tier: "LOW",
+      text: `Low — ${formatted} ${dayUnit}`,
+      days: value,
+    };
+  }
+
+  return {
+    tier: "NORMAL",
+    text: `${formatted} days remaining`,
+    days: value,
+  };
 }
 
 /**
@@ -284,11 +424,14 @@ export function calculateStockIntelligence(input: StockCalculationInput): StockI
     }
   }
 
+  const daysRemainingDisplay = formatDaysRemainingDisplay(currentStock, velocity, daysRemaining);
+
   return {
     currentStock,
     effectiveStock,
     velocity,
     daysRemaining,
+    daysRemainingDisplay,
     status,
     suggestedPurchaseQuantity: suggestedQuantity,
     targetStock,

@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import type { EnrichedProduct } from "@/server/stockService";
+import { formatDaysRemainingDisplay } from "@/domain/intelligence";
+import { getDaysRemainingBadgeStyle } from "@/utils/stockDisplay";
 import { useStock } from "@/context/StockContext";
 import {
   AlertCircle,
@@ -55,6 +57,8 @@ export function ProductCard({
   };
 
   const { status, suggestedPurchaseQuantity, daysRemaining, velocity, explanation } = product.intelligence;
+  const daysDisplay = product.intelligence.daysRemainingDisplay || formatDaysRemainingDisplay(product.currentStock, velocity, daysRemaining);
+  const daysStyle = getDaysRemainingBadgeStyle(daysDisplay.tier);
   const isNegative = product.currentStock < 0;
 
   // Status visual themes
@@ -158,20 +162,9 @@ export function ProductCard({
             Time Left
           </span>
           <div className="mt-0.5">
-            {daysRemaining !== null ? (
-              daysRemaining === Infinity ? (
-                <span className="text-sm font-bold text-slate-700">Steady (0 sales)</span>
-              ) : (
-                <div className="flex items-baseline gap-1">
-                  <span className={`text-base sm:text-lg font-bold ${statusConfig.accent}`}>
-                    About {Math.max(0, Math.round(daysRemaining))}
-                  </span>
-                  <span className="text-xs font-semibold text-slate-700">days left</span>
-                </div>
-              )
-            ) : (
-              <span className="text-xs font-medium text-slate-600">Calculating...</span>
-            )}
+            <span className={`text-sm sm:text-base ${daysStyle.textClasses}`}>
+              {daysDisplay.text}
+            </span>
           </div>
           {velocity !== null && velocity > 0 && (
             <div className="text-[11px] text-slate-600">

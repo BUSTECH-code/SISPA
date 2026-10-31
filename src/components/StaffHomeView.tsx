@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import { useStock, type EnrichedProduct, type EnrichedCustomer } from "@/context/StockContext";
+import { formatDaysRemainingDisplay } from "@/domain/intelligence";
+import { getDaysRemainingBadgeStyle } from "@/utils/stockDisplay";
 import {
   ShoppingBag,
   Truck,
@@ -230,38 +232,40 @@ export function StaffHomeView() {
                   Matching Products ({matchedProducts.length})
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {matchedProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/60 p-3 hover:bg-slate-50"
-                    >
-                      <div>
-                        <div className="font-bold text-slate-900 text-xs sm:text-sm">{p.name}</div>
-                        <div className="text-[11px] text-slate-500">
-                          {p.category} • Selling: <strong className="text-slate-900">₦{Number(p.sellingPrice).toLocaleString()}</strong> / {p.unit}
+                  {matchedProducts.map((p) => {
+                    const daysDisplay = p.intelligence.daysRemainingDisplay ||
+                      formatDaysRemainingDisplay(p.currentStock, p.intelligence.velocity, p.intelligence.daysRemaining);
+                    const tierStyle = getDaysRemainingBadgeStyle(daysDisplay.tier);
+
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/60 p-3 hover:bg-slate-50 gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">{p.name}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {p.category} • Selling: <strong className="text-slate-900">₦{Number(p.sellingPrice).toLocaleString()}</strong> / {p.unit}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-bold border ${tierStyle.badgeClasses}`}
+                          >
+                            {p.currentStock} {p.unit} ({daysDisplay.text})
+                          </span>
+                          {canSell && (
+                            <button
+                              onClick={() => openRecordSale(p)}
+                              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-1 text-xs font-bold text-white hover:bg-emerald-700 active:scale-95 cursor-pointer shadow-xs"
+                            >
+                              Sell
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                            p.intelligence.status === "RUNNING_LOW" || p.currentStock <= 0
-                              ? "bg-red-100 text-red-800"
-                              : "bg-emerald-100 text-emerald-800"
-                          }`}
-                        >
-                          {p.currentStock} {p.unit} left
-                        </span>
-                        {canSell && (
-                          <button
-                            onClick={() => openRecordSale(p)}
-                            className="rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer"
-                          >
-                            Sell
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
