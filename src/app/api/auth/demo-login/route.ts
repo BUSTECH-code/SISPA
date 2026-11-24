@@ -2,8 +2,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSession, getCurrentUser, SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/server/authService";
-import { cookies } from "next/headers";
+import {
+  createSession,
+  getCurrentUser,
+  listUserActiveBusinesses,
+  SESSION_COOKIE_NAME,
+  SESSION_DURATION_MS,
+} from "@/server/authService";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +59,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const session = await createSession(user.id);
+    const availableBusinesses = user.isPlatformAdmin ? [] : await listUserActiveBusinesses(user.id);
+    const activeBusinessId =
+      !user.isPlatformAdmin && availableBusinesses.length > 0
+        ? availableBusinesses[0].businessId
+        : null;
+
+    const session = await createSession(user.id, activeBusinessId);
 
     const response = NextResponse.json({
       success: true,
@@ -65,7 +76,10 @@ export async function POST(request: Request) {
         role: user.role,
         businessName: user.businessName,
         isPlatformAdmin: Boolean(user.isPlatformAdmin),
+        activeBusinessId,
       },
+      activeBusinessId,
+      availableBusinesses,
     });
 
     response.cookies.set({

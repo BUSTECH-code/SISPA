@@ -5,7 +5,7 @@ import { useStock } from "@/context/StockContext";
 import { PackagePlus, X, Check, AlertCircle, Tag, Lock } from "lucide-react";
 
 export function AddProductModal() {
-  const { activeModal, closeModal, refreshData, isOwner } = useStock();
+  const { activeModal, closeModal, refreshData, isOwner, getBusinessHeaders } = useStock();
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Cement & Aggregates");
@@ -36,7 +36,7 @@ export function AddProductModal() {
     try {
       const res = await fetch("/api/products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify({
           name: name.trim(),
           category: category.trim(),

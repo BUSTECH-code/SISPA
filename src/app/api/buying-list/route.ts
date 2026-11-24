@@ -6,15 +6,15 @@ import {
   removeBuyingListItem,
   clearCompletedBuyingItems,
 } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, userRole } = resolveBusinessContext(user);
-    const items = await getBuyingList(businessId, userRole);
+    const { businessId, userRole, actorId } = await requireRouteBusinessContext(request);
+    const items = await getBuyingList(businessId, userRole, actorId);
     const totalEstimatedOutlay = items.reduce((sum, item) => {
       const cost = item.estimatedUnitCost ? Number(item.estimatedUnitCost) : 0;
       return sum + item.quantityToBuy * cost;
@@ -33,22 +33,14 @@ export async function GET() {
       },
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to load buying list:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't load your buying list. Please try again." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "We couldn't load your buying list. Please try again.");
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, userRole } = resolveBusinessContext(user);
     const body = await request.json();
+    const { businessId, userRole, actorId } = await requireRouteBusinessContext(request, body);
     const { productId, quantityToBuy, estimatedUnitCost, supplierName } = body;
 
     if (!productId || isNaN(Number(productId))) {
@@ -69,7 +61,8 @@ export async function POST(request: Request) {
     const cost = userRole === "OWNER" && estimatedUnitCost ? Number(estimatedUnitCost) : null;
 
     const item = await addOrUpdateBuyingListItem({
-      userId: businessId,
+      businessId,
+      actorId,
       productId: Number(productId),
       quantityToBuy: qty,
       estimatedUnitCost: cost,
@@ -82,22 +75,14 @@ export async function POST(request: Request) {
       message: "Added to your buying list!",
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to add to buying list:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "We couldn't update your buying list." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "We couldn't update your buying list.");
   }
 }
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId } = resolveBusinessContext(user);
     const body = await request.json();
+    const { businessId, actorId } = await requireRouteBusinessContext(request, body);
     const { id, isCompleted, quantityToBuy } = body;
 
     if (!id || isNaN(Number(id))) {
@@ -108,36 +93,29 @@ export async function PATCH(request: Request) {
       businessId,
       Number(id),
       isCompleted !== undefined ? Boolean(isCompleted) : undefined,
-      quantityToBuy !== undefined ? Number(quantityToBuy) : undefined
+      quantityToBuy !== undefined ? Number(quantityToBuy) : undefined,
+      actorId
     );
     return NextResponse.json({ success: true, data: item });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to toggle buying list item:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't update this item. Please try again." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "We couldn't update this item. Please try again.");
   }
 }
 
 export async function DELETE(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId } = resolveBusinessContext(user);
+    const { businessId, actorId } = await requireRouteBusinessContext(request);
     const { searchParams } = new URL(request.url);
     const clearCompleted = searchParams.get("clearCompleted");
     const id = searchParams.get("id");
 
     if (clearCompleted === "true") {
-      await clearCompletedBuyingItems(businessId);
+      await clearCompletedBuyingItems(businessId, actorId);
       return NextResponse.json({ success: true, message: "Cleared completed items." });
     }
 
     if (id && !isNaN(Number(id))) {
-      await removeBuyingListItem(businessId, Number(id));
+      await removeBuyingListItem(businessId, Number(id), actorId);
       return NextResponse.json({ success: true, message: "Item removed from buying list." });
     }
 
@@ -146,13 +124,6 @@ export async function DELETE(request: Request) {
       { status: 400 }
     );
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to remove item:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't remove this item. Please try again." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "We couldn't remove this item. Please try again.");
   }
 }

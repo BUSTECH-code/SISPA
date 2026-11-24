@@ -36,6 +36,23 @@ const SESSION_COOKIE_NAME = "sispa_session_id";
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const INVITATION_EXPIRY_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
+export class ActiveBusinessRequiredError extends Error {
+  readonly statusCode = 400;
+  readonly code = "ACTIVE_BUSINESS_REQUIRED";
+
+  constructor(message = "Explicit activeBusinessId is required for business-scoped operations.") {
+    super(message);
+    this.name = "ActiveBusinessRequiredError";
+  }
+}
+
+export function parsePositiveBusinessId(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const num = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(num) || num <= 0) return null;
+  return num;
+}
+
 /**
  * Hash password securely
  */
@@ -51,19 +68,21 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 /**
- * Resolve tenant business ID and user role (backward-compatible)
+ * Strict explicit business context resolver (zero fallback to userId or businesses[0]).
  */
-export function resolveBusinessContext(user: User): {
+export function resolveBusinessContext(user: User, activeBusinessId?: number | null): {
   businessId: number;
   userRole: "OWNER" | "STAFF";
   actorId: number;
   actorName: string;
 } {
+  const parsed = parsePositiveBusinessId(activeBusinessId);
+  if (!parsed) {
+    throw new ActiveBusinessRequiredError();
+  }
   const userRole = (user.role as "OWNER" | "STAFF") || "OWNER";
-  const businessId = userRole === "STAFF" && user.businessOwnerId ? user.businessOwnerId : user.id;
-
   return {
-    businessId,
+    businessId: parsed,
     userRole,
     actorId: user.id,
     actorName: user.fullName,
@@ -74,68 +93,50 @@ export function resolveBusinessContext(user: User): {
  * Get or automatically ensure a commercial business entity exists for an owner
  */
 export async function ensureBusinessForOwner(ownerUser: User): Promise<Business> {
-  try {
-    const existing = await db
-      .select()
-      .from(businesses)
-      .where(eq(businesses.ownerUserId, ownerUser.id))
-      .limit(1);
+  const existing = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.ownerUserId, ownerUser.id))
+    .limit(1);
 
-    if (existing.length > 0) {
-      return existing[0];
-    }
+  if (existing.length > 0) {
+    return existing[0];
+  }
 
-    // Create business entity
-    const trialEndsAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14); // 14-day trial
-    const [newBiz] = await db
-      .insert(businesses)
-      .values({
-        name: ownerUser.businessName || "My Building Materials Shop",
-        currency: "NGN",
-        state: "ACTIVE",
-        ownerUserId: ownerUser.id,
-        subscriptionPlan: "STANDARD",
-        subscriptionStatus: "TRIAL",
-        trialEndsAt,
-      })
-      .returning();
-
-    // Create owner membership
-    await db.insert(businessMemberships).values({
-      businessId: newBiz.id,
-      userId: ownerUser.id,
-      role: "OWNER",
-      status: "ACTIVE",
-      activatedAt: new Date(),
-    });
-
-    // Create subscription record
-    await db.insert(businessSubscriptions).values({
-      businessId: newBiz.id,
-      plan: "STANDARD",
-      status: "TRIAL",
-      provider: "DIRECT",
-      trialEndsAt,
-    });
-
-    return newBiz;
-  } catch (error) {
-    console.error("[SISPA Auth] Error ensuring business for owner:", error);
-    // Return virtual fallback if DB has transient issue
-    return {
-      id: ownerUser.id,
-      name: ownerUser.businessName,
+  // Create business entity
+  const trialEndsAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14); // 14-day trial
+  const [newBiz] = await db
+    .insert(businesses)
+    .values({
+      name: ownerUser.businessName || "My Building Materials Shop",
       currency: "NGN",
       state: "ACTIVE",
       ownerUserId: ownerUser.id,
       subscriptionPlan: "STANDARD",
       subscriptionStatus: "TRIAL",
-      trialEndsAt: null,
-      currentPeriodEnd: null,
-      createdAt: ownerUser.createdAt,
-      updatedAt: ownerUser.updatedAt,
-    };
-  }
+      trialEndsAt,
+    })
+    .returning();
+
+  // Create owner membership
+  await db.insert(businessMemberships).values({
+    businessId: newBiz.id,
+    userId: ownerUser.id,
+    role: "OWNER",
+    status: "ACTIVE",
+    activatedAt: new Date(),
+  });
+
+  // Create subscription record
+  await db.insert(businessSubscriptions).values({
+    businessId: newBiz.id,
+    plan: "STANDARD",
+    status: "TRIAL",
+    provider: "DIRECT",
+    trialEndsAt,
+  });
+
+  return newBiz;
 }
 
 /**
@@ -266,6 +267,7 @@ export interface StaffInvitationResponse {
  */
 export async function createStaffInvitation(params: {
   ownerUser: User;
+  businessId: number;
   inviteeName: string;
   inviteeEmail?: string;
   role?: "STAFF";
@@ -274,6 +276,7 @@ export async function createStaffInvitation(params: {
 }): Promise<StaffInvitationResponse> {
   const {
     ownerUser,
+    businessId,
     inviteeName,
     inviteeEmail,
     role = "STAFF",
@@ -281,18 +284,19 @@ export async function createStaffInvitation(params: {
     origin = "",
   } = params;
 
-  if (ownerUser.role !== "OWNER") {
-    throw new Error("FORBIDDEN_STAFF_MANAGE");
-  }
+  const ctx = await requireActiveBusinessContext({
+    userId: ownerUser.id,
+    activeBusinessId: businessId,
+  });
+  assertCan(ctx, "STAFF_MANAGE", { businessId });
 
-  const business = await ensureBusinessForOwner(ownerUser);
   const token = crypto.randomBytes(24).toString("hex");
   const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_MS);
 
   const [invitation] = await db
     .insert(staffInvitations)
     .values({
-      businessId: business.id,
+      businessId: ctx.business.id,
       token,
       inviteeEmail: inviteeEmail?.toLowerCase().trim() || null,
       inviteeName: inviteeName.trim(),
@@ -306,7 +310,7 @@ export async function createStaffInvitation(params: {
 
   // Audit invitation generation
   await recordSecurityAudit({
-    businessId: business.id,
+    businessId: ctx.business.id,
     actorId: ownerUser.id,
     actorName: ownerUser.fullName,
     actorRole: "OWNER",
@@ -330,7 +334,7 @@ export async function createStaffInvitation(params: {
     status: invitation.status,
     customCapabilities,
     expiresAt: invitation.expiresAt,
-    businessName: business.name,
+    businessName: ctx.business.name,
   };
 }
 
@@ -338,16 +342,14 @@ export async function createStaffInvitation(params: {
  * List pending and past staff invitations for a business
  */
 export async function getStaffInvitations(businessId: number): Promise<StaffInvitation[]> {
-  try {
-    return await db
-      .select()
-      .from(staffInvitations)
-      .where(eq(staffInvitations.businessId, businessId))
-      .orderBy(desc(staffInvitations.createdAt));
-  } catch (error) {
-    console.error("[SISPA Auth] Error fetching invitations:", error);
-    return [];
+  if (!parsePositiveBusinessId(businessId)) {
+    throw new ActiveBusinessRequiredError();
   }
+  return db
+    .select()
+    .from(staffInvitations)
+    .where(eq(staffInvitations.businessId, businessId))
+    .orderBy(desc(staffInvitations.createdAt));
 }
 
 /**
@@ -355,19 +357,20 @@ export async function getStaffInvitations(businessId: number): Promise<StaffInvi
  */
 export async function revokeStaffInvitation(params: {
   ownerUser: User;
+  businessId: number;
   invitationId: number;
 }): Promise<boolean> {
-  const { ownerUser, invitationId } = params;
-  if (ownerUser.role !== "OWNER") {
-    throw new Error("FORBIDDEN_STAFF_MANAGE");
-  }
-
-  const business = await ensureBusinessForOwner(ownerUser);
+  const { ownerUser, businessId, invitationId } = params;
+  const ctx = await requireActiveBusinessContext({
+    userId: ownerUser.id,
+    activeBusinessId: businessId,
+  });
+  assertCan(ctx, "STAFF_MANAGE", { businessId });
 
   const [existing] = await db
     .select()
     .from(staffInvitations)
-    .where(and(eq(staffInvitations.id, invitationId), eq(staffInvitations.businessId, business.id)))
+    .where(and(eq(staffInvitations.id, invitationId), eq(staffInvitations.businessId, ctx.business.id)))
     .limit(1);
 
   if (!existing || existing.status !== "PENDING") {
@@ -380,7 +383,7 @@ export async function revokeStaffInvitation(params: {
     .where(eq(staffInvitations.id, invitationId));
 
   await recordSecurityAudit({
-    businessId: business.id,
+    businessId: ctx.business.id,
     actorId: ownerUser.id,
     actorName: ownerUser.fullName,
     actorRole: "OWNER",
@@ -516,7 +519,7 @@ export async function acceptStaffInvitation(params: {
     afterState: { email: newUser.email, fullName: newUser.fullName, role: "STAFF", status: "ACTIVE" },
   });
 
-  const session = await createSession(newUser.id);
+  const session = await createSession(newUser.id, business.id);
   return { user: newUser, session };
 }
 
@@ -540,85 +543,57 @@ export interface StaffMemberDetail {
 }
 
 /**
- * List staff members with comprehensive lifecycle status and delegated capabilities
+ * List staff members with comprehensive lifecycle status and delegated capabilities for an explicit businessId
  */
-export async function getStaffMembersWithLifecycle(ownerId: number): Promise<StaffMemberDetail[]> {
-  try {
-    const bizList = await db
-      .select()
-      .from(businesses)
-      .where(eq(businesses.ownerUserId, ownerId))
-      .limit(1);
-
-    if (bizList.length === 0) {
-      return [];
-    }
-
-    const businessId = bizList[0].id;
-
-    const list = await db
-      .select({
-        membershipId: businessMemberships.id,
-        userId: users.id,
-        fullName: users.fullName,
-        email: users.email,
-        role: businessMemberships.role,
-        status: businessMemberships.status,
-        customCapabilities: businessMemberships.customCapabilities,
-        invitedAt: businessMemberships.invitedAt,
-        activatedAt: businessMemberships.activatedAt,
-        suspendedAt: businessMemberships.suspendedAt,
-        deactivatedAt: businessMemberships.deactivatedAt,
-        createdAt: users.createdAt,
-      })
-      .from(businessMemberships)
-      .innerJoin(users, eq(businessMemberships.userId, users.id))
-      .where(and(eq(businessMemberships.businessId, businessId), eq(businessMemberships.role, "STAFF")))
-      .orderBy(desc(users.createdAt));
-
-    return list.map((item) => {
-      let parsedCaps: string[] = ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
-      if (item.customCapabilities) {
-        try {
-          parsedCaps = JSON.parse(item.customCapabilities);
-        } catch {
-          // fallback to defaults
-        }
-      }
-      return {
-        id: item.membershipId,
-        userId: item.userId,
-        fullName: item.fullName,
-        email: item.email,
-        role: item.role as MembershipRole,
-        status: item.status as MembershipStatus,
-        customCapabilities: parsedCaps,
-        invitedAt: item.invitedAt,
-        activatedAt: item.activatedAt,
-        suspendedAt: item.suspendedAt,
-        deactivatedAt: item.deactivatedAt,
-        createdAt: item.createdAt,
-      };
-    });
-  } catch (error) {
-    console.error("[SISPA Auth] Error fetching staff with lifecycle:", error);
-    // Fallback to legacy users table
-    const legacy = await getStaffMembers(ownerId);
-    return legacy.map((u) => ({
-      id: u.id,
-      userId: u.id,
-      fullName: u.fullName,
-      email: u.email,
-      role: "STAFF" as MembershipRole,
-      status: (u.isActive ? "ACTIVE" : "SUSPENDED") as MembershipStatus,
-      customCapabilities: ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"],
-      invitedAt: null,
-      activatedAt: u.createdAt,
-      suspendedAt: null,
-      deactivatedAt: null,
-      createdAt: u.createdAt,
-    }));
+export async function getStaffMembersWithLifecycle(businessId: number): Promise<StaffMemberDetail[]> {
+  if (!parsePositiveBusinessId(businessId)) {
+    throw new ActiveBusinessRequiredError();
   }
+
+  const list = await db
+    .select({
+      membershipId: businessMemberships.id,
+      userId: users.id,
+      fullName: users.fullName,
+      email: users.email,
+      role: businessMemberships.role,
+      status: businessMemberships.status,
+      customCapabilities: businessMemberships.customCapabilities,
+      invitedAt: businessMemberships.invitedAt,
+      activatedAt: businessMemberships.activatedAt,
+      suspendedAt: businessMemberships.suspendedAt,
+      deactivatedAt: businessMemberships.deactivatedAt,
+      createdAt: users.createdAt,
+    })
+    .from(businessMemberships)
+    .innerJoin(users, eq(businessMemberships.userId, users.id))
+    .where(and(eq(businessMemberships.businessId, businessId), eq(businessMemberships.role, "STAFF")))
+    .orderBy(desc(users.createdAt));
+
+  return list.map((item) => {
+    let parsedCaps: string[] = ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"];
+    if (item.customCapabilities) {
+      try {
+        parsedCaps = JSON.parse(item.customCapabilities);
+      } catch {
+        // fallback to defaults
+      }
+    }
+    return {
+      id: item.membershipId,
+      userId: item.userId,
+      fullName: item.fullName,
+      email: item.email,
+      role: item.role as MembershipRole,
+      status: item.status as MembershipStatus,
+      customCapabilities: parsedCaps,
+      invitedAt: item.invitedAt,
+      activatedAt: item.activatedAt,
+      suspendedAt: item.suspendedAt,
+      deactivatedAt: item.deactivatedAt,
+      createdAt: item.createdAt,
+    };
+  });
 }
 
 /**
@@ -627,27 +602,32 @@ export async function getStaffMembersWithLifecycle(ownerId: number): Promise<Sta
  */
 export async function updateStaffMembershipStatus(params: {
   ownerUser: User;
+  businessId: number;
   staffUserId: number;
   newStatus: "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
   reason?: string;
 }): Promise<boolean> {
-  const { ownerUser, staffUserId, newStatus, reason } = params;
+  const { ownerUser, businessId, staffUserId, newStatus, reason } = params;
 
-  if (ownerUser.role !== "OWNER") {
-    throw new Error("FORBIDDEN_STAFF_MANAGE");
-  }
+  const ctx = await requireActiveBusinessContext({
+    userId: ownerUser.id,
+    activeBusinessId: businessId,
+  });
+  assertCan(ctx, "STAFF_MANAGE", { businessId });
 
   if (ownerUser.id === staffUserId) {
     throw new Error("CANNOT_MODIFY_OWN_MEMBERSHIP");
   }
 
-  const business = await ensureBusinessForOwner(ownerUser);
-
   const [membership] = await db
     .select()
     .from(businessMemberships)
-    .where(and(eq(businessMemberships.businessId, business.id), eq(businessMemberships.userId, staffUserId)))
+    .where(and(eq(businessMemberships.businessId, ctx.business.id), eq(businessMemberships.userId, staffUserId)))
     .limit(1);
+
+  if (!membership) {
+    throw new Error("STAFF_MEMBERSHIP_NOT_FOUND");
+  }
 
   const [staffUser] = await db
     .select()
@@ -659,37 +639,22 @@ export async function updateStaffMembershipStatus(params: {
     throw new Error("Staff user not found.");
   }
 
-  const previousStatus = membership?.status || (staffUser.isActive ? "ACTIVE" : "SUSPENDED");
+  const previousStatus = membership.status;
   const now = new Date();
 
   // Update membership
   await db
-    .insert(businessMemberships)
-    .values({
-      businessId: business.id,
-      userId: staffUserId,
-      role: "STAFF",
+    .update(businessMemberships)
+    .set({
       status: newStatus,
       suspendedAt: newStatus === "SUSPENDED" ? now : null,
       deactivatedAt: newStatus === "DEACTIVATED" ? now : null,
-      activatedAt: newStatus === "ACTIVE" ? now : membership?.activatedAt || now,
+      activatedAt: newStatus === "ACTIVE" ? now : membership.activatedAt || now,
+      updatedAt: now,
     })
-    .onConflictDoUpdate({
-      target: [businessMemberships.businessId, businessMemberships.userId],
-      set: {
-        status: newStatus,
-        suspendedAt: newStatus === "SUSPENDED" ? now : null,
-        deactivatedAt: newStatus === "DEACTIVATED" ? now : null,
-      },
-    });
+    .where(eq(businessMemberships.id, membership.id));
 
-  // Update user active flag
-  await db
-    .update(users)
-    .set({ isActive: newStatus === "ACTIVE" })
-    .where(eq(users.id, staffUserId));
-
-  // If suspended or deactivated, revoke all active sessions immediately
+  // If suspended or deactivated, revoke all active sessions for that user on this business immediately
   if (newStatus === "SUSPENDED" || newStatus === "DEACTIVATED") {
     await db.delete(sessions).where(eq(sessions.userId, staffUserId));
   }
@@ -703,7 +668,7 @@ export async function updateStaffMembershipStatus(params: {
       : "STAFF_ACTIVATED";
 
   await recordSecurityAudit({
-    businessId: business.id,
+    businessId: ctx.business.id,
     actorId: ownerUser.id,
     actorName: ownerUser.fullName,
     actorRole: "OWNER",
@@ -724,21 +689,22 @@ export async function updateStaffMembershipStatus(params: {
  */
 export async function updateStaffCapabilities(params: {
   ownerUser: User;
+  businessId: number;
   staffUserId: number;
   capabilities: string[];
 }): Promise<boolean> {
-  const { ownerUser, staffUserId, capabilities } = params;
+  const { ownerUser, businessId, staffUserId, capabilities } = params;
 
-  if (ownerUser.role !== "OWNER") {
-    throw new Error("FORBIDDEN_STAFF_MANAGE");
-  }
-
-  const business = await ensureBusinessForOwner(ownerUser);
+  const ctx = await requireActiveBusinessContext({
+    userId: ownerUser.id,
+    activeBusinessId: businessId,
+  });
+  assertCan(ctx, "STAFF_MANAGE", { businessId });
 
   const [membership] = await db
     .select()
     .from(businessMemberships)
-    .where(and(eq(businessMemberships.businessId, business.id), eq(businessMemberships.userId, staffUserId)))
+    .where(and(eq(businessMemberships.businessId, ctx.business.id), eq(businessMemberships.userId, staffUserId)))
     .limit(1);
 
   if (!membership) {
@@ -761,7 +727,7 @@ export async function updateStaffCapabilities(params: {
     .where(eq(businessMemberships.id, membership.id));
 
   await recordSecurityAudit({
-    businessId: business.id,
+    businessId: ctx.business.id,
     actorId: ownerUser.id,
     actorName: ownerUser.fullName,
     actorRole: "OWNER",
@@ -782,15 +748,18 @@ export async function updateStaffCapabilities(params: {
 
 export async function transferBusinessOwnership(params: {
   currentOwner: User;
+  businessId: number;
   newOwnerUserId: number;
   passwordConfirmation: string;
   reason?: string;
 }): Promise<boolean> {
-  const { currentOwner, newOwnerUserId, passwordConfirmation, reason } = params;
+  const { currentOwner, businessId, newOwnerUserId, passwordConfirmation, reason } = params;
 
-  if (currentOwner.role !== "OWNER") {
-    throw new Error("FORBIDDEN_OWNERSHIP_TRANSFER");
-  }
+  const ctx = await requireActiveBusinessContext({
+    userId: currentOwner.id,
+    activeBusinessId: businessId,
+  });
+  assertCan(ctx, "OWNERSHIP_TRANSFER", { businessId });
 
   // Re-authentication check
   const isPasswordValid = await verifyPassword(passwordConfirmation, currentOwner.passwordHash);
@@ -798,9 +767,7 @@ export async function transferBusinessOwnership(params: {
     throw new Error("INVALID_CREDENTIALS");
   }
 
-  const business = await ensureBusinessForOwner(currentOwner);
-
-  // Validate eligible candidate
+  // Validate eligible candidate (must be active user and active member of THIS business)
   const [newOwnerUser] = await db
     .select()
     .from(users)
@@ -811,38 +778,50 @@ export async function transferBusinessOwnership(params: {
     throw new Error("NEW_OWNER_NOT_ACTIVE");
   }
 
+  const [candidateMembership] = await db
+    .select()
+    .from(businessMemberships)
+    .where(
+      and(
+        eq(businessMemberships.businessId, ctx.business.id),
+        eq(businessMemberships.userId, newOwnerUserId),
+        eq(businessMemberships.status, "ACTIVE")
+      )
+    )
+    .limit(1);
+
+  if (!candidateMembership) {
+    throw new Error("NEW_OWNER_NOT_ACTIVE_MEMBER");
+  }
+
   // Update business owner
   await db
     .update(businesses)
     .set({ ownerUserId: newOwnerUserId, updatedAt: new Date() })
-    .where(eq(businesses.id, business.id));
+    .where(eq(businesses.id, ctx.business.id));
 
   // Update membership for new owner
   await db
     .update(businessMemberships)
     .set({ role: "OWNER", updatedAt: new Date() })
-    .where(and(eq(businessMemberships.businessId, business.id), eq(businessMemberships.userId, newOwnerUserId)));
+    .where(and(eq(businessMemberships.businessId, ctx.business.id), eq(businessMemberships.userId, newOwnerUserId)));
 
   // Demote previous owner to STAFF
   await db
     .update(businessMemberships)
     .set({ role: "STAFF", updatedAt: new Date() })
-    .where(and(eq(businessMemberships.businessId, business.id), eq(businessMemberships.userId, currentOwner.id)));
-
-  // Update users table roles
-  await db.update(users).set({ role: "OWNER" }).where(eq(users.id, newOwnerUserId));
-  await db.update(users).set({ role: "STAFF", businessOwnerId: newOwnerUserId }).where(eq(users.id, currentOwner.id));
+    .where(and(eq(businessMemberships.businessId, ctx.business.id), eq(businessMemberships.userId, currentOwner.id)));
 
   // Audit event
   await recordSecurityAudit({
-    businessId: business.id,
+    businessId: ctx.business.id,
     actorId: currentOwner.id,
     actorName: currentOwner.fullName,
     actorRole: "OWNER",
     eventType: "BUSINESS_OWNERSHIP_TRANSFERRED",
-    description: `Transferred business ownership of "${business.name}" from ${currentOwner.fullName} to ${newOwnerUser.fullName}`,
+    description: `Transferred business ownership of "${ctx.business.name}" from ${currentOwner.fullName} to ${newOwnerUser.fullName}`,
     entityType: "businesses",
-    entityId: business.id,
+    entityId: ctx.business.id,
     beforeState: { ownerUserId: currentOwner.id, ownerName: currentOwner.fullName },
     afterState: { ownerUserId: newOwnerUserId, ownerName: newOwnerUser.fullName },
     reason: reason || "Owner initiated ownership transfer",
@@ -852,11 +831,11 @@ export async function transferBusinessOwnership(params: {
 }
 
 // ============================================================================
-// SESSIONS & USER CONTEXT
+// SESSIONS & EXPLICIT ACTIVE-BUSINESS USER CONTEXT
 // ============================================================================
 
 /**
- * List staff members belonging to a shop owner (legacy)
+ * List staff members belonging to a shop owner (legacy helper)
  */
 export async function getStaffMembers(ownerId: number): Promise<Array<Omit<User, "passwordHash">>> {
   const list = await db
@@ -878,9 +857,12 @@ export async function getStaffMembers(ownerId: number): Promise<Array<Omit<User,
 }
 
 /**
- * Create a new session for user
+ * Create a new session for user (with optional explicit activeBusinessId — never inferred)
  */
-export async function createSession(userId: number): Promise<Session> {
+export async function createSession(
+  userId: number,
+  activeBusinessId?: number | null
+): Promise<Session> {
   const sessionId = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
 
@@ -889,6 +871,7 @@ export async function createSession(userId: number): Promise<Session> {
     .values({
       id: sessionId,
       userId,
+      activeBusinessId: parsePositiveBusinessId(activeBusinessId),
       expiresAt,
     })
     .returning();
@@ -897,9 +880,9 @@ export async function createSession(userId: number): Promise<Session> {
 }
 
 /**
- * Get authenticated user from session cookie
+ * Get authenticated user + session from session cookie
  */
-export async function getCurrentUser(): Promise<User | null> {
+export async function getCurrentSession(): Promise<{ user: User; session: Session } | null> {
   try {
     const cookieStore = await cookies();
     const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
@@ -926,197 +909,198 @@ export async function getCurrentUser(): Promise<User | null> {
 
     const { user, session } = result[0];
 
-    // Check expiration or active status
     if (new Date(session.expiresAt) < now || !user.isActive) {
       await db.delete(sessions).where(eq(sessions.id, sessionId));
       return null;
     }
 
-    return user;
+    return { user, session };
   } catch (err: any) {
     if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
-      console.error("Error retrieving current user:", err);
+      console.error("Error retrieving current session:", err);
     }
     return null;
   }
 }
 
 /**
- * Get full authoritative AuthContext for current session
+ * Get authenticated user from session cookie
  */
-export async function getCurrentAuthContext(): Promise<AuthContext | null> {
-  const user = await getCurrentUser();
-  if (!user) return null;
-
-  const userRole = (user.role as MembershipRole) || "OWNER";
-  const businessOwnerId = userRole === "STAFF" && user.businessOwnerId ? user.businessOwnerId : user.id;
-
-  let biz: Business;
-  try {
-    const bizList = await db
-      .select()
-      .from(businesses)
-      .where(eq(businesses.ownerUserId, businessOwnerId))
-      .limit(1);
-
-    if (bizList.length > 0) {
-      biz = bizList[0];
-    } else {
-      biz = await ensureBusinessForOwner(user);
-    }
-  } catch {
-    biz = {
-      id: businessOwnerId,
-      name: user.businessName,
-      currency: "NGN",
-      state: "ACTIVE",
-      ownerUserId: businessOwnerId,
-      subscriptionPlan: "STANDARD",
-      subscriptionStatus: "TRIAL",
-      trialEndsAt: null,
-      currentPeriodEnd: null,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
-  }
-
-  let membershipStatus: MembershipStatus = user.isActive ? "ACTIVE" : "SUSPENDED";
-  let customCaps: Capability[] = [];
-
-  try {
-    const memberList = await db
-      .select()
-      .from(businessMemberships)
-      .where(and(eq(businessMemberships.businessId, biz.id), eq(businessMemberships.userId, user.id)))
-      .limit(1);
-
-    if (memberList.length > 0) {
-      membershipStatus = memberList[0].status as MembershipStatus;
-      if (memberList[0].customCapabilities) {
-        customCaps = JSON.parse(memberList[0].customCapabilities);
-      }
-    }
-  } catch {
-    // Keep fallback
-  }
-
-  return {
-    userId: user.id,
-    email: user.email,
-    fullName: user.fullName,
-    isPlatformAdmin: user.isPlatformAdmin,
-    user: {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      phone: user.phone,
-    },
-    business: {
-      id: biz.id,
-      name: biz.name,
-      currency: biz.currency,
-      state: biz.state as any,
-      ownerUserId: biz.ownerUserId || businessOwnerId,
-      subscriptionPlan: biz.subscriptionPlan as any,
-      subscriptionStatus: biz.subscriptionStatus as any,
-      trialEndsAt: biz.trialEndsAt,
-      currentPeriodEnd: biz.currentPeriodEnd,
-    },
-    membership: {
-      id: user.id,
-      role: userRole,
-      status: membershipStatus,
-      customCapabilities: customCaps,
-    },
-  };
+export async function getCurrentUser(): Promise<User | null> {
+  const current = await getCurrentSession();
+  return current ? current.user : null;
 }
 
 /**
- * Resolve full authoritative AuthContext for a given userId
+ * List all ACTIVE businesses where user holds an ACTIVE membership
  */
-export async function getAuthContextForUser(
-  userId: number,
-  explicitRole?: "OWNER" | "STAFF"
-): Promise<AuthContext | null> {
+export async function listUserActiveBusinesses(userId: number): Promise<
+  Array<{
+    businessId: number;
+    name: string;
+    currency: string;
+    state: string;
+    role: MembershipRole;
+    customCapabilities: Capability[];
+  }>
+> {
+  const rows = await db
+    .select({
+      business: businesses,
+      membership: businessMemberships,
+    })
+    .from(businessMemberships)
+    .innerJoin(businesses, eq(businessMemberships.businessId, businesses.id))
+    .where(
+      and(
+        eq(businessMemberships.userId, userId),
+        eq(businessMemberships.status, "ACTIVE"),
+        eq(businesses.state, "ACTIVE")
+      )
+    );
+
+  return rows.map(({ business, membership }) => {
+    let caps: Capability[] = [];
+    if (membership.customCapabilities) {
+      try {
+        caps = JSON.parse(membership.customCapabilities);
+      } catch {
+        caps = [];
+      }
+    }
+    return {
+      businessId: business.id,
+      name: business.name,
+      currency: business.currency,
+      state: business.state,
+      role: membership.role as MembershipRole,
+      customCapabilities: caps,
+    };
+  });
+}
+
+/**
+ * Resolve & validate full AuthContext for an explicit activeBusinessId.
+ * Rejects missing activeBusinessId with ActiveBusinessRequiredError (400),
+ * even when the user belongs to exactly one business.
+ */
+export async function requireActiveBusinessContext(params: {
+  userId: number;
+  activeBusinessId?: number | null;
+  sessionId?: string | null;
+  explicitRole?: "OWNER" | "STAFF";
+  allowInactiveForAssertion?: boolean;
+}): Promise<AuthContext> {
+  const { userId, sessionId, explicitRole, allowInactiveForAssertion = false } = params;
+
   const [user] = await db
     .select()
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
 
-  if (!user) return null;
-
-  const userRole = (explicitRole || user.role || "OWNER") as MembershipRole;
-  const businessOwnerId =
-    userRole === "STAFF" && user.businessOwnerId ? user.businessOwnerId : user.id;
-
-  let biz: Business;
-  try {
-    const [membershipRecord] = await db
-      .select()
-      .from(businessMemberships)
-      .where(eq(businessMemberships.userId, user.id))
-      .limit(1);
-
-    if (membershipRecord) {
-      const [b] = await db
-        .select()
-        .from(businesses)
-        .where(eq(businesses.id, membershipRecord.businessId))
-        .limit(1);
-      if (b) {
-        biz = b;
-      } else {
-        biz = await ensureBusinessForOwner(user);
-      }
-    } else {
-      const bizList = await db
-        .select()
-        .from(businesses)
-        .where(eq(businesses.ownerUserId, businessOwnerId))
-        .limit(1);
-
-      if (bizList.length > 0) {
-        biz = bizList[0];
-      } else {
-        biz = await ensureBusinessForOwner(user);
-      }
-    }
-  } catch {
-    biz = {
-      id: businessOwnerId,
-      name: user.businessName,
-      currency: "NGN",
-      state: "ACTIVE",
-      ownerUserId: businessOwnerId,
-      subscriptionPlan: "STANDARD",
-      subscriptionStatus: "TRIAL",
-      trialEndsAt: null,
-      currentPeriodEnd: null,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
+  if (!user) {
+    throw new Error("UNAUTHORIZED");
   }
 
-  let membershipStatus: MembershipStatus = user.isActive ? "ACTIVE" : "SUSPENDED";
+  let targetBusinessId = parsePositiveBusinessId(params.activeBusinessId);
+  if (!targetBusinessId && sessionId) {
+    const [sess] = await db
+      .select()
+      .from(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+      .limit(1);
+    if (sess) {
+      targetBusinessId = parsePositiveBusinessId(sess.activeBusinessId);
+    }
+  }
+
+  if (!targetBusinessId) {
+    throw new ActiveBusinessRequiredError();
+  }
+
+  const [biz] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, targetBusinessId))
+    .limit(1);
+
+  if (!biz) {
+    throw new Error("BUSINESS_NOT_FOUND");
+  }
+
+  const [membershipRecord] = await db
+    .select()
+    .from(businessMemberships)
+    .where(
+      and(
+        eq(businessMemberships.businessId, targetBusinessId),
+        eq(businessMemberships.userId, user.id)
+      )
+    )
+    .limit(1);
+
+  let activeSupportGrant: AuthContext["activeSupportGrant"] | undefined;
+  if (!membershipRecord) {
+    if (user.isPlatformAdmin) {
+      const now = new Date();
+      const grants = await db
+        .select()
+        .from(supportAccessLogs)
+        .where(
+          and(
+            eq(supportAccessLogs.businessId, targetBusinessId),
+            eq(supportAccessLogs.platformAdminUserId, user.id),
+            eq(supportAccessLogs.status, "APPROVED")
+          )
+        )
+        .orderBy(desc(supportAccessLogs.approvedAt))
+        .limit(5);
+      const validGrant = grants.find((g) => !g.revokedAt && g.expiresAt && new Date(g.expiresAt) > now);
+      if (validGrant && validGrant.expiresAt) {
+        activeSupportGrant = {
+          platformAdminUserId: user.id,
+          reason: validGrant.reason,
+          scope: validGrant.scope === "READ_ONLY" ? "READ_ONLY" : "FULL",
+          expiresAt: validGrant.expiresAt,
+        };
+      }
+    }
+    if (!activeSupportGrant) {
+      throw new Error("FORBIDDEN_CROSS_BUSINESS");
+    }
+  }
+
+  if (!allowInactiveForAssertion && !activeSupportGrant) {
+    if (biz.state !== "ACTIVE") {
+      throw new Error(`BUSINESS_${biz.state}`);
+    }
+    if (!user.isActive || membershipRecord!.status === "SUSPENDED") {
+      throw new Error("STAFF_SUSPENDED");
+    }
+    if (membershipRecord!.status === "DEACTIVATED") {
+      throw new Error("STAFF_DEACTIVATED");
+    }
+    if (membershipRecord!.status !== "ACTIVE") {
+      throw new Error("MEMBERSHIP_NOT_ACTIVE");
+    }
+  }
+
   let customCaps: Capability[] = [];
-
-  try {
-    const memberList = await db
-      .select()
-      .from(businessMemberships)
-      .where(and(eq(businessMemberships.businessId, biz.id), eq(businessMemberships.userId, user.id)))
-      .limit(1);
-
-    if (memberList.length > 0) {
-      membershipStatus = memberList[0].status as MembershipStatus;
-      if (memberList[0].customCapabilities) {
-        customCaps = JSON.parse(memberList[0].customCapabilities);
-      }
+  if (membershipRecord?.customCapabilities) {
+    try {
+      customCaps = JSON.parse(membershipRecord.customCapabilities);
+    } catch {
+      customCaps = [];
     }
-  } catch {
-    // Keep fallback
   }
+
+  const resolvedRole = (
+    explicitRole ||
+    membershipRecord?.role ||
+    (activeSupportGrant ? "OWNER" : user.role) ||
+    "STAFF"
+  ) as MembershipRole;
 
   return {
     userId: user.id,
@@ -1134,19 +1118,162 @@ export async function getAuthContextForUser(
       name: biz.name,
       currency: biz.currency,
       state: biz.state as any,
-      ownerUserId: biz.ownerUserId || businessOwnerId,
+      ownerUserId: biz.ownerUserId || user.id,
       subscriptionPlan: biz.subscriptionPlan as any,
       subscriptionStatus: biz.subscriptionStatus as any,
       trialEndsAt: biz.trialEndsAt,
       currentPeriodEnd: biz.currentPeriodEnd,
     },
     membership: {
-      id: user.id,
-      role: userRole,
-      status: membershipStatus,
+      id: membershipRecord?.id || user.id,
+      role: resolvedRole,
+      status: membershipRecord
+        ? ((!user.isActive && membershipRecord.status === "ACTIVE") ? "SUSPENDED" : (membershipRecord.status as MembershipStatus))
+        : "ACTIVE",
       customCapabilities: customCaps,
     },
+    activeSupportGrant,
   };
+}
+
+/**
+ * Bind an explicit activeBusinessId onto an authenticated session after validating membership & active state
+ */
+export async function setSessionActiveBusiness(params: {
+  sessionId: string;
+  userId: number;
+  businessId: number;
+}): Promise<AuthContext> {
+  const { sessionId, userId, businessId } = params;
+  const parsedBizId = parsePositiveBusinessId(businessId);
+  if (!parsedBizId) {
+    throw new ActiveBusinessRequiredError();
+  }
+
+  const ctx = await requireActiveBusinessContext({
+    userId,
+    activeBusinessId: parsedBizId,
+  });
+
+  await db
+    .update(sessions)
+    .set({ activeBusinessId: ctx.business.id })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)));
+
+  await recordSecurityAudit({
+    businessId: ctx.business.id,
+    actorId: userId,
+    actorName: ctx.fullName,
+    actorRole: ctx.membership.role,
+    eventType: "ACTIVE_BUSINESS_SWITCHED",
+    entityType: "sessions",
+    description: `${ctx.fullName} selected active business "${ctx.business.name}" (#${ctx.business.id}).`,
+  });
+
+  return ctx;
+}
+
+/**
+ * Extract explicit activeBusinessId from API request (header, query, body, or bound session.activeBusinessId)
+ * and validate strict ACTIVE business + ACTIVE membership. Never infers from userId or businesses[0].
+ */
+export async function requireRouteBusinessContext(
+  request?: Request | null,
+  body?: Record<string, any> | null
+): Promise<{
+  user: User;
+  session: Session;
+  authContext: AuthContext;
+  businessId: number;
+  userRole: "OWNER" | "STAFF";
+  actorId: number;
+  actorName: string;
+}> {
+  const current = await getCurrentSession();
+  if (!current) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const { user, session } = current;
+
+  let headerBizId: number | null = null;
+  let queryBizId: number | null = null;
+  let bodyBizId: number | null = null;
+
+  if (request) {
+    headerBizId = parsePositiveBusinessId(request.headers.get("x-business-id"));
+    try {
+      const url = new URL(request.url);
+      queryBizId = parsePositiveBusinessId(
+        url.searchParams.get("activeBusinessId") ?? url.searchParams.get("businessId")
+      );
+    } catch {
+      // ignore malformed URL
+    }
+  }
+
+  if (body && typeof body === "object") {
+    bodyBizId = parsePositiveBusinessId(body.activeBusinessId ?? body.businessId);
+  }
+
+  const explicitCandidates = [headerBizId, queryBizId, bodyBizId].filter(
+    (v): v is number => v !== null
+  );
+  if (explicitCandidates.length > 1 && new Set(explicitCandidates).size > 1) {
+    throw new ActiveBusinessRequiredError(
+      "Conflicting activeBusinessId values provided across header, query, or request body."
+    );
+  }
+
+  const explicitBusinessId = explicitCandidates[0] ?? parsePositiveBusinessId(session.activeBusinessId);
+  if (!explicitBusinessId) {
+    throw new ActiveBusinessRequiredError();
+  }
+
+  const authContext = await requireActiveBusinessContext({
+    userId: user.id,
+    activeBusinessId: explicitBusinessId,
+  });
+
+  return {
+    user,
+    session,
+    authContext,
+    businessId: authContext.business.id,
+    userRole: authContext.membership.role,
+    actorId: user.id,
+    actorName: user.fullName,
+  };
+}
+
+/**
+ * Get full authoritative AuthContext for current session (requires session.activeBusinessId or explicit activeBusinessId)
+ */
+export async function getCurrentAuthContext(activeBusinessId?: number | null): Promise<AuthContext | null> {
+  const current = await getCurrentSession();
+  if (!current) return null;
+
+  return requireActiveBusinessContext({
+    userId: current.user.id,
+    activeBusinessId: activeBusinessId ?? current.session.activeBusinessId,
+    sessionId: current.session.id,
+  });
+}
+
+/**
+ * Resolve full authoritative AuthContext for a given userId and explicit activeBusinessId
+ */
+export async function getAuthContextForUser(
+  userId: number,
+  explicitRole?: "OWNER" | "STAFF",
+  activeBusinessId?: number | null
+): Promise<AuthContext> {
+  return requireActiveBusinessContext({
+    userId,
+    activeBusinessId,
+    explicitRole,
+    allowInactiveForAssertion: true,
+  });
 }
 
 /**
@@ -1213,9 +1340,9 @@ export async function getPlatformOverview(adminUserId: number) {
     .from(users);
 
   const allMemberships = await db.select().from(businessMemberships);
-  const allProducts = await db.select({ id: products.id, userId: products.userId }).from(products);
-  const allLedger = await db.select({ id: stockLedgerEntries.id, userId: stockLedgerEntries.userId }).from(stockLedgerEntries);
-  const allCustomers = await db.select({ id: customers.id, userId: customers.userId }).from(customers);
+  const allProducts = await db.select({ id: products.id, businessId: products.businessId }).from(products);
+  const allLedger = await db.select({ id: stockLedgerEntries.id, businessId: stockLedgerEntries.businessId }).from(stockLedgerEntries);
+  const allCustomers = await db.select({ id: customers.id, businessId: customers.businessId }).from(customers);
 
   const allGrants = await db
     .select()
@@ -1253,11 +1380,9 @@ export async function getPlatformOverview(adminUserId: number) {
       return isApproved && notRevoked && notExpired;
     });
 
-    // Compute high-level operational counts using owner user ID
-    const ownerId = b.ownerUserId || 0;
-    const productCount = allProducts.filter((p) => p.userId === ownerId).length;
-    const ledgerEntriesCount = allLedger.filter((l) => l.userId === ownerId).length;
-    const customerCount = allCustomers.filter((c) => c.userId === ownerId).length;
+    const productCount = allProducts.filter((p) => p.businessId === b.id).length;
+    const ledgerEntriesCount = allLedger.filter((l) => l.businessId === b.id).length;
+    const customerCount = allCustomers.filter((c) => c.businessId === b.id).length;
 
     return {
       id: b.id,

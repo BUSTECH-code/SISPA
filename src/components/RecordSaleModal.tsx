@@ -35,6 +35,7 @@ export function RecordSaleModal() {
     refreshData,
     enqueueLocalMutation,
     user,
+    getBusinessHeaders,
   } = useStock();
 
   // Multi-line items
@@ -273,6 +274,7 @@ export function RecordSaleModal() {
         headers: {
           "Content-Type": "application/json",
           "X-Idempotency-Key": clientTxId,
+          ...getBusinessHeaders(),
         },
         body: JSON.stringify(salePayload),
       });

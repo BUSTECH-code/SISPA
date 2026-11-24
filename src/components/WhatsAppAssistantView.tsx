@@ -29,7 +29,7 @@ interface ChatMessage {
 }
 
 export function WhatsAppAssistantView() {
-  const { user, refreshData, setActiveTab } = useStock();
+  const { user, refreshData, setActiveTab, getBusinessHeaders } = useStock();
 
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -92,7 +92,7 @@ export function WhatsAppAssistantView() {
     try {
       const res = await fetch("/api/whatsapp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify({ message: query }),
       });
 
@@ -147,7 +147,7 @@ export function WhatsAppAssistantView() {
     try {
       const res = await fetch("/api/whatsapp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify({ executeAction: true, actionData }),
       });
 
@@ -181,7 +181,7 @@ export function WhatsAppAssistantView() {
     try {
       const res = await fetch("/api/whatsapp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify({ message: "weekly report" }),
       });
       const json = await res.json();

@@ -5,7 +5,7 @@ import { useStock } from "@/context/StockContext";
 import { CheckSquare, X, Check, ArrowRight, AlertTriangle, Scale } from "lucide-react";
 
 export function StockCheckModal() {
-  const { activeModal, products, closeModal, refreshData } = useStock();
+  const { activeModal, products, closeModal, refreshData, getBusinessHeaders } = useStock();
   const [counts, setCounts] = useState<{ [productId: number]: string }>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,7 +24,7 @@ export function StockCheckModal() {
     try {
       const res = await fetch("/api/stock-count", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify({
           productId: currentProduct.id,
           physicalCount: Number(inputVal),

@@ -2,14 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { verifyPassword, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/server/authService";
+import {
+  verifyPassword,
+  createSession,
+  listUserActiveBusinesses,
+  parsePositiveBusinessId,
+  requireActiveBusinessContext,
+  SESSION_COOKIE_NAME,
+  SESSION_DURATION_MS,
+} from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password } = body;
+    const { email, password, activeBusinessId, businessId } = body;
 
     if (!email || !password) {
       return NextResponse.json(
@@ -39,8 +48,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create session
-    const session = await createSession(user.id);
+    if (!user.isActive) {
+      return NextResponse.json(
+        { success: false, code: "USER_SUSPENDED", error: "Your account is currently inactive." },
+        { status: 403 }
+      );
+    }
+
+    const requestedBusinessId = parsePositiveBusinessId(activeBusinessId ?? businessId);
+    if (requestedBusinessId) {
+      await requireActiveBusinessContext({
+        userId: user.id,
+        activeBusinessId: requestedBusinessId,
+      });
+    }
+
+    const availableBusinesses = await listUserActiveBusinesses(user.id);
+    const session = await createSession(user.id, requestedBusinessId);
 
     const response = NextResponse.json({
       success: true,
@@ -52,11 +76,12 @@ export async function POST(request: NextRequest) {
         businessName: user.businessName,
         businessOwnerId: user.businessOwnerId,
         isPlatformAdmin: Boolean(user.isPlatformAdmin),
+        activeBusinessId: session.activeBusinessId ?? null,
+        availableBusinesses,
       },
       message: "Logged in successfully!",
     });
 
-    // Set cookie
     response.cookies.set({
       name: SESSION_COOKIE_NAME,
       value: session.id,
@@ -69,10 +94,6 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error: any) {
-    console.error("Login error:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to log in. Please try again." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Failed to log in. Please try again.");
   }
 }

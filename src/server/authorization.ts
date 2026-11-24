@@ -31,7 +31,10 @@ export type Capability =
   | "CASH_CHECK_VIEW"
   | "PRODUCT_CREATE"
   | "PRODUCT_EDIT"
-  | "BUYING_DECISION";
+  | "BUYING_DECISION"
+  | "PENDING_MOVEMENT_RESOLVE"
+  | "PENDING_MOVEMENT_COST_EDIT"
+  | "STOCK_COUNT_TIMESTAMP_CONFIRM";
 
 export type StaffCapabilityKey =
   | "CAN_SELL"
@@ -197,6 +200,9 @@ export const OWNER_DEFAULT_CAPABILITIES: readonly Capability[] = [
   "PRODUCT_CREATE",
   "PRODUCT_EDIT",
   "BUYING_DECISION",
+  "PENDING_MOVEMENT_RESOLVE",
+  "PENDING_MOVEMENT_COST_EDIT",
+  "STOCK_COUNT_TIMESTAMP_CONFIRM",
 ];
 
 export const STAFF_DEFAULT_CAPABILITIES: readonly Capability[] = [
@@ -344,6 +350,9 @@ export function can(
     "AUDIT_VIEW_SENSITIVE",
     "CASH_CHECK_VIEW",
     "BUYING_DECISION",
+    "PENDING_MOVEMENT_RESOLVE",
+    "PENDING_MOVEMENT_COST_EDIT",
+    "STOCK_COUNT_TIMESTAMP_CONFIRM",
   ];
 
   if (SENSITIVE_OWNER_CAPABILITIES.includes(capability)) {
@@ -382,6 +391,10 @@ export function assertCan(
 
   if (context.membership.status === "DEACTIVATED") {
     throw new Error("STAFF_DEACTIVATED");
+  }
+
+  if (context.membership.status !== "ACTIVE") {
+    throw new Error("MEMBERSHIP_NOT_ACTIVE");
   }
 
   if (resource && resource.businessId !== undefined && resource.businessId !== context.business.id) {

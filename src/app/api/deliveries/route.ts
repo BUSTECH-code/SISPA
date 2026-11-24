@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
 import { recordDelivery } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
-    const { productId, quantityReceived, unitCost, supplierName, notes, customDate, idempotencyKey } = body;
+    const { businessId, actorId, actorName, userRole } = await requireRouteBusinessContext(request, body);
+    const {
+      productId,
+      quantityReceived,
+      unitCost,
+      supplierName,
+      notes,
+      customDate,
+      occurredAt,
+      clientTimestamp,
+      isOfflineSync,
+      idempotencyKey,
+    } = body;
 
     const headerKey = request.headers.get("x-idempotency-key") || request.headers.get("x-client-tx-id");
     const resolvedIdempotencyKey = (idempotencyKey || headerKey)?.trim() || undefined;
@@ -29,14 +40,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Commercial sensitivity: only owner can submit purchase price
     const cost =
       userRole === "OWNER" && unitCost !== undefined && unitCost !== null && unitCost !== ""
         ? Number(unitCost)
         : null;
 
     const entry = await recordDelivery({
-      userId: businessId,
+      businessId,
       actorId,
       actorName,
       actorRole: userRole,
@@ -46,25 +56,20 @@ export async function POST(request: Request) {
       supplierName,
       notes,
       customDate: customDate ? new Date(customDate) : undefined,
+      occurredAt: occurredAt ?? undefined,
+      clientTimestamp: clientTimestamp ?? undefined,
+      isOfflineSync: Boolean(isOfflineSync),
       idempotencyKey: resolvedIdempotencyKey,
     });
 
     return NextResponse.json({
       success: true,
       data: entry,
-      message: "Delivery recorded! Stock has been updated.",
+      message: entry.isQuarantined
+        ? "Delivery logged and queued for owner timestamp review."
+        : "Delivery recorded! Stock has been updated.",
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to record delivery:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "We couldn't save this delivery. Check your connection and try again.",
-      },
-      { status: 400 }
-    );
+    return handleRouteError(error, "We couldn't save this delivery. Check your connection and try again.");
   }
 }

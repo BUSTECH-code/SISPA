@@ -5,7 +5,7 @@ import { useStock } from "@/context/StockContext";
 import { Truck, X, Check, AlertCircle, Lock } from "lucide-react";
 
 export function RecordDeliveryModal() {
-  const { activeModal, selectedProduct, products, isOwner, closeModal, refreshData, enqueueLocalMutation } = useStock();
+  const { activeModal, selectedProduct, products, isOwner, closeModal, refreshData, enqueueLocalMutation, getBusinessHeaders } = useStock();
 
   const [productId, setProductId] = useState<number | string>("");
   const [quantityReceived, setQuantityReceived] = useState<string>("");
@@ -113,6 +113,7 @@ export function RecordDeliveryModal() {
         headers: {
           "Content-Type": "application/json",
           "X-Idempotency-Key": clientTxId,
+          ...getBusinessHeaders(),
         },
         body: JSON.stringify(deliveryPayload),
       });

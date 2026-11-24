@@ -9,9 +9,13 @@ import {
   transferBusinessOwnership,
 } from "./authService";
 import { addProduct, recordSale } from "./stockService";
+import { db } from "@/db";
+import { businesses } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
   let shopAOwner: any;
+  let shopABizId: number;
   let shopBOwner: any;
   let shopAStaff: any;
   let invitationToken: string;
@@ -25,6 +29,8 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
       role: "OWNER",
       businessName: "Musa Wholesale Hub",
     });
+    const [bizA] = await db.select().from(businesses).where(eq(businesses.ownerUserId, shopAOwner.id)).limit(1);
+    shopABizId = bizA.id;
 
     // 2. Create Business B (Separate isolated tenant)
     shopBOwner = await createUser({
@@ -39,6 +45,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
   it("Owner can generate a cryptographic single-use invitation link", async () => {
     const invite = await createStaffInvitation({
       ownerUser: shopAOwner,
+      businessId: shopABizId,
       inviteeName: "Sani Clerk",
       inviteeEmail: "sani@shopa.com",
     });
@@ -90,7 +97,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
   });
 
   it("Owner can list staff and see active membership", async () => {
-    const roster = await getStaffMembersWithLifecycle(shopAOwner.id);
+    const roster = await getStaffMembersWithLifecycle(shopABizId);
     expect(roster.length).toBeGreaterThanOrEqual(1);
     const found = roster.find((s) => s.email === shopAStaff.email);
     expect(found).toBeDefined();
@@ -100,6 +107,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
   it("Owner can suspend a staff member, immediately revoking their access", async () => {
     const success = await updateStaffMembershipStatus({
       ownerUser: shopAOwner,
+      businessId: shopABizId,
       staffUserId: shopAStaff.id,
       newStatus: "SUSPENDED",
       reason: "Temporary audit investigation",
@@ -109,7 +117,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
 
     // Add a product under Shop A
     const product = await addProduct({
-      userId: shopAOwner.id,
+      businessId: shopABizId,
       actorId: shopAOwner.id,
       actorName: shopAOwner.fullName,
       actorRole: "OWNER",
@@ -123,7 +131,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
     // Attempting an action as suspended staff MUST throw STAFF_SUSPENDED
     await expect(
       recordSale({
-        userId: shopAOwner.id,
+        businessId: shopABizId,
         actorId: shopAStaff.id,
         actorName: shopAStaff.fullName,
         actorRole: "STAFF",
@@ -138,6 +146,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
   it("Owner can reactivate suspended staff, restoring operational capabilities", async () => {
     const success = await updateStaffMembershipStatus({
       ownerUser: shopAOwner,
+      businessId: shopABizId,
       staffUserId: shopAStaff.id,
       newStatus: "ACTIVE",
       reason: "Investigation completed - cleared",
@@ -151,6 +160,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
     await expect(
       transferBusinessOwnership({
         currentOwner: shopAOwner,
+        businessId: shopABizId,
         newOwnerUserId: shopAStaff.id,
         passwordConfirmation: "wrongPassword",
         reason: "Succession",
@@ -160,6 +170,7 @@ describe("Commercial Multi-Tenant Isolation & Staff Lifecycle Tests", () => {
     // Attempt with correct password succeeds
     const success = await transferBusinessOwnership({
       currentOwner: shopAOwner,
+      businessId: shopABizId,
       newOwnerUserId: shopAStaff.id,
       passwordConfirmation: "secretPassword123",
       reason: "Commercial succession to Sani Clerk",

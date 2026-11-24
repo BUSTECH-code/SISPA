@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, numeric, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, numeric, timestamp, boolean, index, uniqueIndex, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 // ==========================================
 // 1. Commercial Businesses & Tenants
@@ -221,11 +221,13 @@ export const sessions = pgTable(
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    activeBusinessId: integer("active_business_id").references(() => businesses.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("sessions_user_id_idx").on(table.userId),
+    index("sessions_active_business_id_idx").on(table.activeBusinessId),
     index("sessions_expires_at_idx").on(table.expiresAt),
   ]
 );
@@ -237,6 +239,9 @@ export const customers = pgTable(
   "customers",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -248,13 +253,43 @@ export const customers = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("customers_business_id_idx").on(table.businessId),
     index("customers_user_id_idx").on(table.userId),
     index("customers_name_idx").on(table.name),
   ]
 );
 
 // ==========================================
-// 3. Products (Inventory Catalog)
+// 3. Product Families (Hierarchy & Grouping)
+// ==========================================
+export const productFamilies = pgTable(
+  "product_families",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    category: text("category").notNull().default("General"),
+    brand: text("brand"),
+    description: text("description"),
+    defaultStockUnit: text("default_stock_unit").notNull().default("units"),
+    suggestedAttributes: jsonb("suggested_attributes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("product_families_business_id_idx").on(table.businessId),
+    index("product_families_user_id_idx").on(table.userId),
+    index("product_families_name_idx").on(table.name),
+  ]
+);
+
+// ==========================================
+// 4. Products (Inventory Catalog & Variants)
 // ==========================================
 export const products = pgTable(
   "products",
@@ -263,19 +298,40 @@ export const products = pgTable(
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    familyId: integer("family_id")
+      .references(() => productFamilies.id, { onDelete: "set null" }),
+    sku: text("sku"),
+    variantName: text("variant_name"),
+    brand: text("brand"),
+    attributes: jsonb("attributes"),
     name: text("name").notNull(),
     category: text("category").notNull().default("General"),
     unit: text("unit").notNull().default("units"),
+    stockUnit: text("stock_unit").notNull().default("units"),
+    packagingUnit: text("packaging_unit"),
+    unitsPerPackage: numeric("units_per_package", { precision: 10, scale: 4 }).notNull().default("1.0"),
+    allowFractionalQuantity: boolean("allow_fractional_quantity").notNull().default(false),
     sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }), // Standard default selling price
     desiredCoverageDays: integer("desired_coverage_days").notNull().default(7),
     minimumStockThreshold: integer("minimum_stock_threshold"),
     manualDailySalesOverride: numeric("manual_daily_sales_override", { precision: 10, scale: 2 }),
+    verificationStatus: text("verification_status").notNull().default("UNVERIFIED"), // 'UNVERIFIED' | 'VERIFIED' | 'NEEDS_RECOUNT'
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    lastVerifiedQuantity: numeric("last_verified_quantity", { precision: 14, scale: 3 }),
+    lastVerifiedByUserId: integer("last_verified_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("products_user_id_idx").on(table.userId),
     index("products_name_idx").on(table.name),
+    uniqueIndex("products_business_sku_idx").on(table.businessId, table.sku),
+    index("products_family_id_idx").on(table.familyId),
+    index("products_business_id_idx").on(table.businessId),
+    index("products_verification_status_idx").on(table.verificationStatus),
   ]
 );
 
@@ -309,6 +365,9 @@ export const sales = pgTable(
   "sales",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -318,27 +377,41 @@ export const sales = pgTable(
       .references(() => customers.id, { onDelete: "set null" }),
     productId: integer("product_id")
       .notNull()
-      .references(() => products.id, { onDelete: "cascade" }),
+      .references(() => products.id, { onDelete: "restrict" }),
     quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
     totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).notNull(),
     amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).notNull().default("0"),
+    refundAmount: numeric("refund_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     outstandingAmount: numeric("outstanding_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     paymentStatus: text("payment_status").notNull().default("PAID"), // 'PAID' | 'PARTIAL' | 'UNPAID'
     notes: text("notes"),
     isCorrection: boolean("is_correction").notNull().default(false),
-    originalSaleId: integer("original_sale_id"),
+    originalSaleId: integer("original_sale_id").references((): AnyPgColumn => sales.id, { onDelete: "restrict" }),
     correctionReason: text("correction_reason"),
     idempotencyKey: text("idempotency_key"),
+    lineIdempotencyKey: text("line_idempotency_key"),
+    saleUnit: text("sale_unit"),
+    packagingUnit: text("packaging_unit"),
+    unitsPerPackage: numeric("units_per_package", { precision: 10, scale: 4 }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+    timestampStatus: text("timestamp_status").notNull().default("CONFIRMED"), // 'CONFIRMED' | 'PENDING_REVIEW' | 'RESOLVED_PRE_CUTOFF' | 'RESOLVED_POST_CUTOFF'
+    timestampBasis: text("timestamp_basis"),
+    deviceTimestamp: timestamp("device_timestamp", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("sales_business_id_idx").on(table.businessId),
     index("sales_user_id_idx").on(table.userId),
     index("sales_customer_id_idx").on(table.customerId),
     index("sales_product_id_idx").on(table.productId),
     index("sales_created_at_idx").on(table.createdAt),
+    index("sales_occurred_at_idx").on(table.occurredAt),
+    index("sales_original_sale_id_idx").on(table.originalSaleId),
+    index("sales_timestamp_status_idx").on(table.timestampStatus),
     index("sales_payment_status_idx").on(table.paymentStatus),
     index("sales_idempotency_key_idx").on(table.idempotencyKey),
+    uniqueIndex("sales_business_line_idempotency_idx").on(table.businessId, table.lineIdempotencyKey),
   ]
 );
 
@@ -349,6 +422,9 @@ export const customerPayments = pgTable(
   "customer_payments",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -364,6 +440,7 @@ export const customerPayments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("payments_business_id_idx").on(table.businessId),
     index("payments_user_id_idx").on(table.userId),
     index("payments_customer_id_idx").on(table.customerId),
     index("payments_created_at_idx").on(table.createdAt),
@@ -378,6 +455,9 @@ export const expenses = pgTable(
   "expenses",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -391,6 +471,7 @@ export const expenses = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("expenses_business_id_idx").on(table.businessId),
     index("expenses_user_id_idx").on(table.userId),
     index("expenses_created_at_idx").on(table.createdAt),
   ]
@@ -403,6 +484,9 @@ export const stockLedgerEntries = pgTable(
   "stock_ledger_entries",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -410,24 +494,30 @@ export const stockLedgerEntries = pgTable(
       .references(() => users.id, { onDelete: "set null" }),
     productId: integer("product_id")
       .notNull()
-      .references(() => products.id, { onDelete: "cascade" }),
+      .references(() => products.id, { onDelete: "restrict" }),
     saleId: integer("sale_id")
       .references(() => sales.id, { onDelete: "set null" }),
-    entryType: text("entry_type").notNull(), // 'OPENING_BALANCE' | 'SALE' | 'RESTOCK' | 'ADJUSTMENT' | 'CORRECTION'
+    entryType: text("entry_type").notNull(), // 'OPENING_BALANCE' | 'SALE' | 'RESTOCK' | 'ADJUSTMENT' | 'CORRECTION' | 'OPENING_BALANCE_RECONCILIATION'
     quantityDelta: numeric("quantity_delta", { precision: 12, scale: 2 }).notNull(),
     unitCost: numeric("unit_cost", { precision: 12, scale: 2 }), // Confidential purchase price
     supplierName: text("supplier_name"),
     notes: text("notes"),
     idempotencyKey: text("idempotency_key"),
+    reconciledEntryId: integer("reconciled_entry_id").references((): AnyPgColumn => stockLedgerEntries.id, { onDelete: "restrict" }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("ledger_business_id_idx").on(table.businessId),
     index("ledger_user_id_idx").on(table.userId),
     index("ledger_product_id_idx").on(table.productId),
     index("ledger_sale_id_idx").on(table.saleId),
     index("ledger_created_at_idx").on(table.createdAt),
     index("ledger_entry_type_idx").on(table.entryType),
     index("ledger_idempotency_key_idx").on(table.idempotencyKey),
+    uniqueIndex("stock_ledger_reconciled_entry_idx").on(table.reconciledEntryId),
+    uniqueIndex("stock_ledger_business_idempotency_idx").on(table.businessId, table.idempotencyKey),
+    index("stock_ledger_occurred_at_idx").on(table.occurredAt),
   ]
 );
 
@@ -438,6 +528,9 @@ export const buyingListItems = pgTable(
   "buying_list_items",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -452,6 +545,7 @@ export const buyingListItems = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("buying_list_business_id_idx").on(table.businessId),
     index("buying_list_user_id_idx").on(table.userId),
     index("buying_list_product_id_idx").on(table.productId),
   ]
@@ -481,7 +575,7 @@ export const auditLogs = pgTable(
     reason: text("reason"),
     source: text("source").notNull().default("WEB"), // 'WEB' | 'WHATSAPP' | 'SYSTEM'
     isSensitive: boolean("is_sensitive").notNull().default(false), // Purchase prices etc.
-    businessId: integer("business_id"), // Commercial Tenant ID
+    businessId: integer("business_id").references(() => businesses.id, { onDelete: "restrict" }), // Commercial Tenant ID (nullable only for global platform events)
     beforeState: text("before_state"), // Snapshot before modification
     afterState: text("after_state"), // Snapshot after modification
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -501,6 +595,9 @@ export const dailyCashChecks = pgTable(
   "daily_cash_checks",
   {
     id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -516,8 +613,123 @@ export const dailyCashChecks = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    index("cash_checks_business_id_idx").on(table.businessId),
     index("cash_checks_user_id_idx").on(table.userId),
     index("cash_checks_date_idx").on(table.checkDate),
+  ]
+);
+
+// ==========================================
+// 12. Opening Stock Sessions (Stocktake Events)
+// ==========================================
+export const openingStockSessions = pgTable(
+  "opening_stock_sessions",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    status: text("status").notNull().default("DRAFT"), // 'DRAFT' | 'POSTED' | 'CANCELLED'
+    notes: text("notes"),
+    idempotencyKey: text("idempotency_key"),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("opening_stock_sessions_business_id_idx").on(table.businessId),
+    index("opening_stock_sessions_user_id_idx").on(table.userId),
+    index("opening_stock_sessions_status_idx").on(table.status),
+    uniqueIndex("opening_stock_sessions_business_idempotency_idx").on(table.businessId, table.idempotencyKey),
+  ]
+);
+
+// ==========================================
+// 13. Opening Stock Items (Session Line Items)
+// ==========================================
+export const openingStockItems = pgTable(
+  "opening_stock_items",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: integer("session_id")
+      .notNull()
+      .references(() => openingStockSessions.id, { onDelete: "restrict" }),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    countedQuantity: numeric("counted_quantity", { precision: 14, scale: 3 }),
+    countedAt: timestamp("counted_at", { withTimezone: true }),
+    status: text("status").notNull().default("NOT_COUNTED"), // 'NOT_COUNTED' | 'COUNTED' | 'NEEDS_RECOUNT' | 'POSTED' | 'STALE_SUPERSEDED'
+    countedByUserId: integer("counted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    unitCost: numeric("unit_cost", { precision: 12, scale: 2 }),
+    notes: text("notes"),
+    reconciledBaseline: numeric("reconciled_baseline", { precision: 14, scale: 3 }),
+    skewFlag: text("skew_flag"),
+    deviceCountedAt: timestamp("device_counted_at", { withTimezone: true }),
+    timestampStatus: text("timestamp_status").notNull().default("CONFIRMED"), // 'CONFIRMED' | 'PENDING_REVIEW' | 'RESOLVED_PRE_CUTOFF' | 'RESOLVED_POST_CUTOFF'
+    timestampBasis: text("timestamp_basis"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("opening_stock_items_session_product_idx").on(table.sessionId, table.productId),
+    index("opening_stock_items_session_id_idx").on(table.sessionId),
+    index("opening_stock_items_product_id_idx").on(table.productId),
+    index("opening_stock_items_status_idx").on(table.status),
+  ]
+);
+
+// ==========================================
+// 14. Pending Stock Movements Quarantine
+// ==========================================
+export const pendingStockMovements = pgTable(
+  "pending_stock_movements",
+  {
+    id: serial("id").primaryKey(),
+    businessId: integer("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+    transactionType: text("transaction_type").notNull(), // 'SALE' | 'RESTOCK' | 'ADJUSTMENT' | 'CORRECTION'
+    status: text("status").notNull().default("PENDING_REVIEW"), // 'PENDING_REVIEW' | 'RESOLVED_PRE_CUTOFF' | 'RESOLVED_POST_CUTOFF'
+    saleId: integer("sale_id").references(() => sales.id, { onDelete: "set null" }),
+    originalSaleId: integer("original_sale_id").references(() => sales.id, { onDelete: "restrict" }),
+    dependsOnPendingId: integer("depends_on_pending_id").references((): AnyPgColumn => pendingStockMovements.id, { onDelete: "restrict" }),
+    quantityDelta: numeric("quantity_delta", { precision: 14, scale: 3 }).notNull(),
+    physicalCount: numeric("physical_count", { precision: 14, scale: 3 }),
+    unitCost: numeric("unit_cost", { precision: 12, scale: 2 }),
+    supplierName: text("supplier_name"),
+    notes: text("notes"),
+    deviceTimestamp: timestamp("device_timestamp", { withTimezone: true }),
+    provisionalOccurredAt: timestamp("provisional_occurred_at", { withTimezone: true }).notNull(),
+    serverIngestedAt: timestamp("server_ingested_at", { withTimezone: true }).defaultNow().notNull(),
+    cutoffSnapshotAt: timestamp("cutoff_snapshot_at", { withTimezone: true }),
+    resolvedOccurredAt: timestamp("resolved_occurred_at", { withTimezone: true }),
+    timestampBasis: text("timestamp_basis").notNull(),
+    skewFlag: text("skew_flag"),
+    resolvedQuantityDelta: numeric("resolved_quantity_delta", { precision: 14, scale: 3 }),
+    ledgerEntryId: integer("ledger_entry_id").references(() => stockLedgerEntries.id, { onDelete: "restrict" }),
+    reconciliationEntryId: integer("reconciliation_entry_id").references(() => stockLedgerEntries.id, { onDelete: "restrict" }),
+    resolvedByUserId: integer("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionNote: text("resolution_note"),
+    idempotencyKey: text("idempotency_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("pending_movements_business_status_idx").on(table.businessId, table.status),
+    index("pending_movements_product_status_idx").on(table.productId, table.status),
+    index("pending_movements_sale_idx").on(table.saleId),
+    index("pending_movements_depends_on_idx").on(table.dependsOnPendingId),
+    uniqueIndex("pending_movements_business_idempotency_idx").on(table.businessId, table.idempotencyKey),
   ]
 );
 
@@ -538,6 +750,8 @@ export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
+export type ProductFamily = typeof productFamilies.$inferSelect;
+export type NewProductFamily = typeof productFamilies.$inferInsert;
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
 export type Supplier = typeof suppliers.$inferSelect;
@@ -550,9 +764,16 @@ export type Expense = typeof expenses.$inferSelect;
 export type NewExpense = typeof expenses.$inferInsert;
 export type StockLedgerEntry = typeof stockLedgerEntries.$inferSelect;
 export type NewStockLedgerEntry = typeof stockLedgerEntries.$inferInsert;
+export type OpeningStockSession = typeof openingStockSessions.$inferSelect;
+export type NewOpeningStockSession = typeof openingStockSessions.$inferInsert;
+export type OpeningStockItem = typeof openingStockItems.$inferSelect;
+export type NewOpeningStockItem = typeof openingStockItems.$inferInsert;
+export type PendingStockMovement = typeof pendingStockMovements.$inferSelect;
+export type NewPendingStockMovement = typeof pendingStockMovements.$inferInsert;
 export type BuyingListItem = typeof buyingListItems.$inferSelect;
 export type NewBuyingListItem = typeof buyingListItems.$inferInsert;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
 export type DailyCashCheck = typeof dailyCashChecks.$inferSelect;
 export type NewDailyCashCheck = typeof dailyCashChecks.$inferInsert;
+

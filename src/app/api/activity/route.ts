@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { stockLedgerEntries, products, users } from "@/db/schema";
-import { desc, eq, and } from "drizzle-orm";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { desc, eq } from "drizzle-orm";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { can } from "@/server/authorization";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, userRole } = resolveBusinessContext(user);
+    const { businessId, userRole, authContext } = await requireRouteBusinessContext(request);
+    const canSeePurchaseCost = userRole === "STAFF" ? false : can(authContext, "PURCHASE_COST_VIEW");
 
     const list = await db
       .select({
@@ -22,6 +24,7 @@ export async function GET() {
         unitCost: stockLedgerEntries.unitCost,
         supplierName: stockLedgerEntries.supplierName,
         notes: stockLedgerEntries.notes,
+        occurredAt: stockLedgerEntries.occurredAt,
         createdAt: stockLedgerEntries.createdAt,
         staffUserId: stockLedgerEntries.staffUserId,
         staffName: users.fullName,
@@ -29,27 +32,19 @@ export async function GET() {
       .from(stockLedgerEntries)
       .innerJoin(products, eq(stockLedgerEntries.productId, products.id))
       .leftJoin(users, eq(stockLedgerEntries.staffUserId, users.id))
-      .where(eq(stockLedgerEntries.userId, businessId))
-      .orderBy(desc(stockLedgerEntries.createdAt))
+      .where(eq(stockLedgerEntries.businessId, businessId))
+      .orderBy(desc(stockLedgerEntries.occurredAt), desc(stockLedgerEntries.id))
       .limit(60);
 
-    // Sanitize unitCost server-side: Staff must not see purchase costs
     const sanitized = list.map((item) => ({
       ...item,
-      unitCost: userRole === "OWNER" ? item.unitCost : null,
+      unitCost: canSeePurchaseCost ? item.unitCost : null,
       staffUserId: item.staffUserId,
       staffName: item.staffName,
     }));
 
     return NextResponse.json({ success: true, data: sanitized });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to load activity:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't load activity history." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "We couldn't load activity history.");
   }
 }

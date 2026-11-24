@@ -262,5 +262,193 @@ describe("SISPA 1.0 Domain Intelligence - Approved Test Cases", () => {
       expect(formatDaysRemainingDisplay(10, 5, NaN)).toEqual({ tier: "NO_ESTIMATE", text: "No estimate", days: null });
     });
   });
+
+  describe("Task 2: Verification States and Buying Intelligence Integration", () => {
+    it("UNVERIFIED products do not trigger automatic BUY NOW for positive, zero, or negative stock", () => {
+      const resPositive = calculateStockIntelligence({
+        currentStock: 3,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "UNVERIFIED",
+      });
+      expect(resPositive.status).toBe("NO_DATA");
+      expect(resPositive.statusLabel).toBe("UNVERIFIED");
+      expect(resPositive.reorderUrgent).toBe(false);
+      expect(resPositive.suggestedPurchaseQuantity).toBe(0);
+      expect(resPositive.displayNotice).toBe("Stock unverified");
+
+      const resZero = calculateStockIntelligence({
+        currentStock: 0,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "UNVERIFIED",
+      });
+      expect(resZero.status).toBe("NO_DATA");
+      expect(resZero.statusLabel).toBe("UNVERIFIED");
+      expect(resZero.reorderUrgent).toBe(false);
+      expect(resZero.suggestedPurchaseQuantity).toBe(0);
+      expect(resZero.displayNotice).toBe("Stock unverified");
+      expect(resZero.explanation).toContain("Physical stock has not been verified yet");
+
+      const resNegative = calculateStockIntelligence({
+        currentStock: -4,
+        velocity: 2,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: null,
+        verificationStatus: "UNVERIFIED",
+      });
+      expect(resNegative.status).toBe("NO_DATA");
+      expect(resNegative.statusLabel).toBe("UNVERIFIED");
+      expect(resNegative.reorderUrgent).toBe(false);
+      expect(resNegative.suggestedPurchaseQuantity).toBe(0);
+      expect(resNegative.displayNotice).toBe("Stock unverified");
+    });
+
+    it("VERIFIED products retain distinction between last verified physical quantity and current ledger balance", () => {
+      const verifyDate = new Date("2026-11-01T10:00:00Z");
+      const res = calculateStockIntelligence({
+        currentStock: 38,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "VERIFIED",
+        lastVerifiedQuantity: 45,
+        lastVerifiedAt: verifyDate,
+      });
+
+      expect(res.verificationStatus).toBe("VERIFIED");
+      expect(res.lastVerifiedQuantity).toBe(45);
+      expect(res.currentStock).toBe(38);
+      expect(res.lastVerifiedAt).toEqual(verifyDate);
+      expect(res.verificationNotice).toBeDefined();
+      expect(res.verificationNotice).toContain("45");
+      expect(res.verificationNotice).toContain("38");
+    });
+
+    it("VERIFIED products trigger BUY NOW for zero and negative stock", () => {
+      const resZero = calculateStockIntelligence({
+        currentStock: 0,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "VERIFIED",
+        lastVerifiedQuantity: 0,
+        lastVerifiedAt: new Date("2026-11-01T10:00:00Z"),
+      });
+
+      expect(resZero.status).toBe("RUNNING_LOW");
+      expect(resZero.statusLabel).toBe("BUY NOW");
+      expect(resZero.reorderUrgent).toBe(true);
+      expect(resZero.suggestedPurchaseQuantity).toBe(35);
+
+      const resNegative = calculateStockIntelligence({
+        currentStock: -3,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "VERIFIED",
+        lastVerifiedQuantity: 10,
+        lastVerifiedAt: new Date("2026-11-01T10:00:00Z"),
+      });
+
+      expect(resNegative.status).toBe("RUNNING_LOW");
+      expect(resNegative.statusLabel).toBe("BUY NOW");
+      expect(resNegative.reorderUrgent).toBe(true);
+      expect(resNegative.effectiveStock).toBe(0);
+      expect(resNegative.suggestedPurchaseQuantity).toBe(35);
+    });
+
+    it("NEEDS_RECOUNT retains active buying intelligence with explicit provisional recount warning across low, zero, negative, and check-soon stock", () => {
+      const verifyDate = new Date("2026-10-01T10:00:00Z");
+
+      // Running low
+      const resLow = calculateStockIntelligence({
+        currentStock: 5,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "NEEDS_RECOUNT",
+        lastVerifiedQuantity: 50,
+        lastVerifiedAt: verifyDate,
+      });
+      expect(resLow.verificationStatus).toBe("NEEDS_RECOUNT");
+      expect(resLow.status).toBe("RUNNING_LOW");
+      expect(resLow.statusLabel).toBe("BUY NOW");
+      expect(resLow.reorderUrgent).toBe(true);
+      expect(resLow.suggestedPurchaseQuantity).toBe(30);
+      expect(resLow.displayNotice).toBe("Recount needed");
+      expect(resLow.explanation).toContain("Provisional");
+      expect(resLow.explanation).toContain("recount advised");
+      expect(resLow.verificationNotice).toContain("Recount pending");
+
+      // Zero stock
+      const resZero = calculateStockIntelligence({
+        currentStock: 0,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "NEEDS_RECOUNT",
+        lastVerifiedQuantity: 50,
+        lastVerifiedAt: verifyDate,
+      });
+      expect(resZero.status).toBe("RUNNING_LOW");
+      expect(resZero.statusLabel).toBe("BUY NOW");
+      expect(resZero.reorderUrgent).toBe(true);
+      expect(resZero.suggestedPurchaseQuantity).toBe(35);
+      expect(resZero.displayNotice).toBe("Recount needed");
+      expect(resZero.explanation).toContain("completely out of stock");
+      expect(resZero.explanation).toContain("Provisional");
+
+      // Negative stock
+      const resNegative = calculateStockIntelligence({
+        currentStock: -2,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "NEEDS_RECOUNT",
+        lastVerifiedQuantity: 50,
+        lastVerifiedAt: verifyDate,
+      });
+      expect(resNegative.status).toBe("RUNNING_LOW");
+      expect(resNegative.statusLabel).toBe("BUY NOW");
+      expect(resNegative.reorderUrgent).toBe(true);
+      expect(resNegative.suggestedPurchaseQuantity).toBe(35);
+      expect(resNegative.displayNotice).toBe("Recount needed");
+      expect(resNegative.explanation).toContain("below zero");
+      expect(resNegative.explanation).toContain("Provisional");
+
+      // Check soon
+      const resSoon = calculateStockIntelligence({
+        currentStock: 50,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: 10,
+        verificationStatus: "NEEDS_RECOUNT",
+        lastVerifiedQuantity: 80,
+        lastVerifiedAt: verifyDate,
+      });
+      expect(resSoon.status).toBe("CHECK_SOON");
+      expect(resSoon.statusLabel).toBe("BUY SOON");
+      expect(resSoon.reorderUrgent).toBe(false);
+      expect(resSoon.displayNotice).toBe("Recount needed");
+      expect(resSoon.explanation).toContain("Provisional");
+    });
+
+    it("preserves backward compatibility when verificationStatus is omitted (defaults to VERIFIED)", () => {
+      const res = calculateStockIntelligence({
+        currentStock: 0,
+        velocity: 5,
+        desiredCoverageDays: 7,
+        minimumStockThreshold: null,
+      });
+      expect(res.verificationStatus).toBe("VERIFIED");
+      expect(res.status).toBe("RUNNING_LOW");
+      expect(res.statusLabel).toBe("BUY NOW");
+      expect(res.reorderUrgent).toBe(true);
+    });
+  });
 });
+
 

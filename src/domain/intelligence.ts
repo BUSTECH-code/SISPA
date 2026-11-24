@@ -26,11 +26,16 @@ export interface DaysRemainingDisplay {
   days: number | null;
 }
 
+export type VerificationStatus = "UNVERIFIED" | "VERIFIED" | "NEEDS_RECOUNT";
+
 export interface StockCalculationInput {
   currentStock: number;
   velocity: number | null;
   desiredCoverageDays: number;
   minimumStockThreshold: number | null;
+  verificationStatus?: VerificationStatus;
+  lastVerifiedQuantity?: number | null;
+  lastVerifiedAt?: Date | null;
 }
 
 export interface StockIntelligenceResult {
@@ -44,11 +49,18 @@ export interface StockIntelligenceResult {
   targetStock: number | null;
   statusLabel: string;
   explanation: string;
+  verificationStatus: VerificationStatus;
+  lastVerifiedQuantity?: number | null;
+  lastVerifiedAt?: Date | null;
+  reorderUrgent: boolean;
+  displayNotice?: string;
+  verificationNotice?: string;
 }
 
 export interface SalesRecord {
-  quantity: number; // positive number representing quantity sold
+  quantity: number; // positive number representing quantity sold (or signed if isCorrection=true)
   date: Date;
+  isCorrection?: boolean;
 }
 
 /**
@@ -106,10 +118,13 @@ export function calculateVelocity(params: {
 
   const windowStartTime = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
 
-  // Sum sales in this calculation window
-  const totalSalesInWindow = sales
-    .filter((s) => s.date.getTime() >= windowStartTime && s.date.getTime() <= now.getTime())
-    .reduce((sum, s) => sum + Math.abs(s.quantity), 0);
+  // Sum net sales in this calculation window (returns/corrections adjust net sold volume)
+  const totalSalesInWindow = Math.max(
+    0,
+    sales
+      .filter((s) => s.date.getTime() >= windowStartTime && s.date.getTime() <= now.getTime())
+      .reduce((sum, s) => sum + (s.isCorrection ? s.quantity : Math.abs(s.quantity)), 0)
+  );
 
   // Return sales per calendar day
   return totalSalesInWindow / windowDays;
@@ -361,9 +376,41 @@ export function calculateSuggestedPurchaseQuantity(params: {
  * Complete stock intelligence calculation helper.
  */
 export function calculateStockIntelligence(input: StockCalculationInput): StockIntelligenceResult {
-  const { currentStock, velocity, desiredCoverageDays, minimumStockThreshold } = input;
-  const effectiveStock = Math.max(currentStock, 0);
+  const {
+    currentStock,
+    velocity,
+    desiredCoverageDays,
+    minimumStockThreshold,
+    verificationStatus = "VERIFIED",
+    lastVerifiedQuantity = null,
+    lastVerifiedAt = null,
+  } = input;
+
   const daysRemaining = calculateDaysRemaining(currentStock, velocity);
+  const daysRemainingDisplay = formatDaysRemainingDisplay(currentStock, velocity, daysRemaining);
+
+  // Constraint 2: UNVERIFIED products must not trigger automatic BUY NOW recommendations based on unconfirmed stock.
+  if (verificationStatus === "UNVERIFIED") {
+    return {
+      currentStock,
+      effectiveStock: Math.max(currentStock, 0),
+      velocity,
+      daysRemaining,
+      daysRemainingDisplay,
+      status: "NO_DATA",
+      suggestedPurchaseQuantity: 0,
+      targetStock: null,
+      statusLabel: "UNVERIFIED",
+      explanation: "Physical stock has not been verified yet. Count shelf stock before ordering.",
+      verificationStatus: "UNVERIFIED",
+      lastVerifiedQuantity: null,
+      lastVerifiedAt: null,
+      reorderUrgent: false,
+      displayNotice: "Stock unverified",
+    };
+  }
+
+  const effectiveStock = Math.max(currentStock, 0);
   const status = calculateAttentionStatus({
     currentStock,
     velocity,
@@ -381,13 +428,17 @@ export function calculateStockIntelligence(input: StockCalculationInput): StockI
 
   let statusLabel = "OK";
   let explanation = "Stock is healthy.";
+  let reorderUrgent = status === "RUNNING_LOW";
+  let displayNotice: string | undefined = undefined;
 
   if (currentStock < 0) {
     statusLabel = "BUY NOW";
     explanation = "Your stock is below zero. Some sales may not have been recorded correctly.";
+    reorderUrgent = true;
   } else if (currentStock === 0) {
     statusLabel = "BUY NOW";
     explanation = "You are completely out of stock.";
+    reorderUrgent = true;
   } else if (status === "RUNNING_LOW") {
     statusLabel = "BUY NOW";
     if (daysRemaining !== null && daysRemaining < Infinity) {
@@ -424,7 +475,24 @@ export function calculateStockIntelligence(input: StockCalculationInput): StockI
     }
   }
 
-  const daysRemainingDisplay = formatDaysRemainingDisplay(currentStock, velocity, daysRemaining);
+  // Constraint 4: NEEDS_RECOUNT retains active buying intelligence while flagging provisional status and recount caution.
+  if (verificationStatus === "NEEDS_RECOUNT") {
+    displayNotice = "Recount needed";
+    explanation = `${explanation} Provisional recommendation — based on potentially inaccurate stock; physical recount advised.`;
+  }
+
+  // Constraint 3: VERIFIED products must retain the distinction between last physically verified quantity and current ledger balance.
+  let verificationNotice: string | undefined = undefined;
+  if (lastVerifiedAt && lastVerifiedQuantity !== null && lastVerifiedQuantity !== undefined) {
+    const formattedDate = lastVerifiedAt instanceof Date
+      ? lastVerifiedAt.toISOString().slice(0, 10)
+      : String(lastVerifiedAt);
+    if (verificationStatus === "VERIFIED") {
+      verificationNotice = `Physical proof: ${lastVerifiedQuantity} counted on ${formattedDate} | Current ledger: ${currentStock}`;
+    } else if (verificationStatus === "NEEDS_RECOUNT") {
+      verificationNotice = `Previous count: ${lastVerifiedQuantity} on ${formattedDate} (Recount pending) | Current ledger: ${currentStock}`;
+    }
+  }
 
   return {
     currentStock,
@@ -437,5 +505,11 @@ export function calculateStockIntelligence(input: StockCalculationInput): StockI
     targetStock,
     statusLabel,
     explanation,
+    verificationStatus,
+    lastVerifiedQuantity,
+    lastVerifiedAt,
+    reorderUrgent,
+    displayNotice,
+    verificationNotice,
   };
 }

@@ -1,29 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, resolveBusinessContext, createSupportRequest, revokeSupportAccessGrant } from "@/server/authService";
+import { requireRouteBusinessContext, createSupportRequest } from "@/server/authService";
 import { db } from "@/db";
-import { supportAccessLogs, businesses } from "@/db/schema";
+import { supportAccessLogs } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ success: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
-
     const body = await req.json();
-    const { businessId, reason, scope, requestedDurationMinutes } = body;
-
-    const { businessId: ctxBizId } = resolveBusinessContext(user);
-    const targetBizId = businessId ? Number(businessId) : ctxBizId;
-    if (!targetBizId) {
-      return NextResponse.json(
-        { success: false, error: "No active business context found." },
-        { status: 400 }
-      );
-    }
+    const { user, businessId } = await requireRouteBusinessContext(req, body);
+    const { reason, scope, requestedDurationMinutes } = body;
 
     if (!reason || !reason.trim()) {
       return NextResponse.json(
@@ -43,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const request = await createSupportRequest({
       requestingUserId: user.id,
-      businessId: targetBizId,
+      businessId,
       reason: reason.trim(),
       scope: targetScope as any,
       requestedDurationMinutes: requestedDurationMinutes ? Number(requestedDurationMinutes) : 30,
@@ -55,29 +43,18 @@ export async function POST(req: NextRequest) {
       data: request,
     });
   } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to submit support request." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Failed to submit support request.");
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ success: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
-
-    const { businessId: targetBizId } = resolveBusinessContext(user);
-    if (!targetBizId) {
-      return NextResponse.json({ success: true, data: [] });
-    }
+    const { businessId } = await requireRouteBusinessContext(req);
 
     const logs = await db
       .select()
       .from(supportAccessLogs)
-      .where(eq(supportAccessLogs.businessId, targetBizId))
+      .where(eq(supportAccessLogs.businessId, businessId))
       .orderBy(desc(supportAccessLogs.createdAt))
       .limit(10);
 
@@ -98,9 +75,6 @@ export async function GET() {
 
     return NextResponse.json({ success: true, data: formatted });
   } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to retrieve support requests." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Failed to retrieve support requests.");
   }
 }

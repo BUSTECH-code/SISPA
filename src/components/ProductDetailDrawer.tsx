@@ -33,6 +33,7 @@ export function ProductDetailDrawer() {
     refreshData,
     isOwner,
     canPerform,
+    getBusinessHeaders,
   } = useStock();
 
   const [ledgerHistory, setLedgerHistory] = useState<StockLedgerEntry[]>([]);
@@ -70,7 +71,9 @@ export function ProductDetailDrawer() {
 
       // Fetch full ledger history
       setIsLoadingLedger(true);
-      fetch(`/api/products/${selectedProduct.id}`)
+      fetch(`/api/products/${selectedProduct.id}`, {
+        headers: getBusinessHeaders(),
+      })
         .then((res) => res.json())
         .then((json) => {
           if (json.success) {
@@ -79,7 +82,7 @@ export function ProductDetailDrawer() {
         })
         .finally(() => setIsLoadingLedger(false));
     }
-  }, [activeModal, selectedProduct]);
+  }, [activeModal, selectedProduct, getBusinessHeaders]);
 
   if (activeModal !== "PRODUCT_DETAILS" || !selectedProduct) return null;
 
@@ -104,7 +107,7 @@ export function ProductDetailDrawer() {
 
       const res = await fetch(`/api/products/${selectedProduct.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify(bodyPayload),
       });
 

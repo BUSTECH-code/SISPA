@@ -17,6 +17,15 @@ import {
 } from "@/lib/offlineQueue";
 export type { OfflineMutation, OfflineMutationType };
 
+export interface ActiveBusinessOption {
+  businessId: number;
+  name: string;
+  currency: string;
+  state: string;
+  role: string;
+  customCapabilities: string[];
+}
+
 export interface UserProfile {
   id: number;
   email: string;
@@ -26,6 +35,7 @@ export interface UserProfile {
   businessOwnerId?: number | null;
   isPlatformAdmin?: boolean;
   delegatedCapabilities?: string[];
+  activeBusinessId?: number | null;
 }
 
 export interface StaffProfile {
@@ -96,9 +106,13 @@ export interface ReportData {
 interface StockContextType {
   // Auth & Role
   user: UserProfile | null;
+  activeBusinessId: number | null;
+  availableBusinesses: ActiveBusinessOption[];
+  selectActiveBusiness: (businessId: number) => Promise<{ success: boolean; error?: string }>;
+  getBusinessHeaders: (overrideBusinessId?: number | null) => Record<string, string>;
   isAuthenticated: boolean;
   isOwner: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string, activeBusinessId?: number) => Promise<{ success: boolean; error?: string }>;
   signup: (params: { email: string; password: string; fullName: string; businessName?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 
@@ -248,6 +262,8 @@ const StockContext = createContext<StockContextType | undefined>(undefined);
 
 export function StockProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [activeBusinessId, setActiveBusinessId] = useState<number | null>(null);
+  const [availableBusinesses, setAvailableBusinesses] = useState<ActiveBusinessOption[]>([]);
   const [products, setProducts] = useState<EnrichedProduct[]>([]);
   const [counts, setCounts] = useState({
     total: 0,
@@ -327,27 +343,44 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const getBusinessHeaders = useCallback(
+    (overrideBusinessId?: number | null): Record<string, string> => {
+      const targetBizId = overrideBusinessId ?? activeBusinessId;
+      return targetBizId ? { "X-Business-Id": String(targetBizId) } : {};
+    },
+    [activeBusinessId]
+  );
+
   // Check auth session
   const checkAuth = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me");
       const json = await res.json();
       if (json.success && json.data.user) {
+        const nextBizId: number | null = json.data.activeBusinessId ?? null;
         setUser(json.data.user);
-        return json.data.user;
+        setActiveBusinessId(nextBizId);
+        setAvailableBusinesses(json.data.availableBusinesses || []);
+        return { user: json.data.user as UserProfile, activeBusinessId: nextBizId };
       } else {
         setUser(null);
-        return null;
+        setActiveBusinessId(null);
+        setAvailableBusinesses([]);
+        return { user: null, activeBusinessId: null };
       }
     } catch {
       setUser(null);
-      return null;
+      setActiveBusinessId(null);
+      setAvailableBusinesses([]);
+      return { user: null, activeBusinessId: null };
     }
   }, []);
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/products");
+      const res = await fetch("/api/products", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       const json = await res.json();
       if (json.success) {
         setProducts(json.data.products);
@@ -358,9 +391,11 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchCustomers = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/customers");
+      const res = await fetch("/api/customers", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       const json = await res.json();
       if (json.success) {
         setCustomers(json.data.customers);
@@ -372,9 +407,11 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchExpenses = useCallback(async () => {
+  const fetchExpenses = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/expenses");
+      const res = await fetch("/api/expenses", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       const json = await res.json();
       if (json.success) {
         setExpenses(json.data.expenses);
@@ -385,9 +422,13 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchBuyingList = useCallback(async () => {
+  const fetchBuyingList = useCallback(async (bizId?: number | null) => {
+    const targetBizId = bizId ?? activeBusinessId;
+    if (!targetBizId) return;
     try {
-      const res = await fetch("/api/buying-list");
+      const res = await fetch("/api/buying-list", {
+        headers: { "X-Business-Id": String(targetBizId) },
+      });
       const json = await res.json();
       if (json.success) {
         setBuyingList(json.data.items);
@@ -396,11 +437,13 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error(err);
     }
-  }, []);
+  }, [activeBusinessId]);
 
-  const fetchActivities = useCallback(async () => {
+  const fetchActivities = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/activity");
+      const res = await fetch("/api/activity", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -412,9 +455,11 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchAuditLogs = useCallback(async () => {
+  const fetchAuditLogs = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/audit");
+      const res = await fetch("/api/audit", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -426,9 +471,11 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchCashChecks = useCallback(async () => {
+  const fetchCashChecks = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/cash-check");
+      const res = await fetch("/api/cash-check", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -440,9 +487,11 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchExceptions = useCallback(async () => {
+  const fetchExceptions = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/exceptions");
+      const res = await fetch("/api/exceptions", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -454,14 +503,16 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchStaff = useCallback(async (isOwnerUser: boolean) => {
+  const fetchStaff = useCallback(async (isOwnerUser: boolean, bizId: number) => {
     if (!isOwnerUser) {
       setStaffMembers([]);
       setStaffInvitations([]);
       return;
     }
     try {
-      const res = await fetch("/api/staff");
+      const res = await fetch("/api/staff", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -479,9 +530,11 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchSuppliers = useCallback(async () => {
+  const fetchSuppliers = useCallback(async (bizId: number) => {
     try {
-      const res = await fetch("/api/suppliers");
+      const res = await fetch("/api/suppliers", {
+        headers: { "X-Business-Id": String(bizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -493,9 +546,13 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchReport = useCallback(async (days: number = 7) => {
+  const fetchReport = useCallback(async (days: number = 7, bizId?: number | null) => {
+    const targetBizId = bizId ?? activeBusinessId;
+    if (!targetBizId) return;
     try {
-      const res = await fetch(`/api/reports?days=${days}`);
+      const res = await fetch(`/api/reports?days=${days}`, {
+        headers: { "X-Business-Id": String(targetBizId) },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success) {
@@ -505,25 +562,25 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error(err);
     }
-  }, []);
+  }, [activeBusinessId]);
 
   const refreshData = useCallback(async () => {
     setIsLoading(true);
-    const currentUser = await checkAuth();
-    if (currentUser) {
+    const { user: currentUser, activeBusinessId: currentBizId } = await checkAuth();
+    if (currentUser && currentBizId) {
       const isOwnerRole = currentUser.role === "OWNER";
       await Promise.all([
-        fetchProducts(),
-        fetchCustomers(),
-        fetchExpenses(),
-        fetchBuyingList(),
-        fetchActivities(),
-        fetchAuditLogs(),
-        fetchCashChecks(),
-        fetchExceptions(),
-        fetchStaff(isOwnerRole),
-        fetchSuppliers(),
-        fetchReport(reportPeriodDays),
+        fetchProducts(currentBizId),
+        fetchCustomers(currentBizId),
+        fetchExpenses(currentBizId),
+        fetchBuyingList(currentBizId),
+        fetchActivities(currentBizId),
+        fetchAuditLogs(currentBizId),
+        fetchCashChecks(currentBizId),
+        fetchExceptions(currentBizId),
+        fetchStaff(isOwnerRole, currentBizId),
+        fetchSuppliers(currentBizId),
+        fetchReport(reportPeriodDays, currentBizId),
       ]);
     } else {
       setProducts([]);
@@ -560,17 +617,43 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     refreshData();
   }, [refreshData]);
 
+  const selectActiveBusiness = async (businessId: number) => {
+    try {
+      const res = await fetch("/api/auth/active-business", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activeBusinessId: businessId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setActiveBusinessId(json.data.activeBusinessId);
+        setAvailableBusinesses(json.data.availableBusinesses || []);
+        await refreshData();
+        return { success: true };
+      }
+      return { success: false, error: json.error || "Failed to select active business." };
+    } catch {
+      return { success: false, error: "Network error selecting active business." };
+    }
+  };
+
   // Auth actions
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, requestedBusinessId?: number) => {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          ...(requestedBusinessId ? { activeBusinessId: requestedBusinessId } : {}),
+        }),
       });
       const json = await res.json();
       if (json.success) {
         setUser(json.data);
+        setActiveBusinessId(json.data.activeBusinessId ?? null);
+        setAvailableBusinesses(json.data.availableBusinesses || []);
         await refreshData();
         closeModal();
         return { success: true };
@@ -596,6 +679,8 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       const json = await res.json();
       if (json.success) {
         setUser(json.data);
+        setActiveBusinessId(json.data.activeBusinessId ?? null);
+        setAvailableBusinesses(json.data.availableBusinesses || []);
         await refreshData();
         closeModal();
         return { success: true };
@@ -610,6 +695,8 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch("/api/auth/me", { method: "POST" });
       setUser(null);
+      setActiveBusinessId(null);
+      setAvailableBusinesses([]);
       setProducts([]);
       setCustomers([]);
       setExpenses([]);
@@ -698,10 +785,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
       payload: any;
       summary: string;
     }): Promise<OfflineMutation | null> => {
-      if (!user) return null;
+      if (!user || !activeBusinessId) return null;
       try {
         const m = await enqueueOfflineMutation({
-          businessId: user.businessOwnerId || user.id,
+          businessId: activeBusinessId,
           userId: user.id,
           userRole: user.role,
           actorName: user.fullName,
@@ -717,7 +804,7 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
     },
-    [user, refreshOfflineQueue]
+    [user, activeBusinessId, refreshOfflineQueue]
   );
 
   // Sync entire pending queue
@@ -830,7 +917,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/customers", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({
           customerId,
           amount,
@@ -880,7 +970,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/expenses", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({
           title,
           amount,
@@ -908,7 +1001,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/cash-check", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({
           actualCash,
           notes,
@@ -934,7 +1030,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/staff", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ action: "CREATE_DIRECT", fullName, email, password }),
       });
       const json = await res.json();
@@ -973,7 +1072,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/staff", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ action: "INVITE", fullName, email, customCapabilities }),
       });
       const json = await res.json();
@@ -989,7 +1091,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
 
   const revokeStaffInvitation = async (invitationId: number): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/staff?invitationId=${invitationId}`, { method: "DELETE" });
+      const res = await fetch(`/api/staff?invitationId=${invitationId}`, {
+        method: "DELETE",
+        headers: getBusinessHeaders(),
+      });
       const json = await res.json();
       if (json.success) {
         await refreshData();
@@ -1009,7 +1114,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/staff", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ action: "UPDATE_STATUS", staffUserId, newStatus, reason }),
       });
       const json = await res.json();
@@ -1030,7 +1138,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/staff", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ action: "UPDATE_CAPABILITIES", staffUserId, capabilities }),
       });
       const json = await res.json();
@@ -1052,7 +1163,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/staff", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({
           action: "TRANSFER_OWNERSHIP",
           newOwnerUserId,
@@ -1079,7 +1193,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch(`/api/sales/${originalSaleId}/correction`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ correctedQuantityDelta, correctionReason }),
       });
       const json = await res.json();
@@ -1100,7 +1217,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch(`/api/deliveries/${ledgerEntryId}/cost`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ unitCost }),
       });
       const json = await res.json();
@@ -1115,7 +1235,8 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
   };
 
   const exportBusinessBackup = () => {
-    window.open("/api/export", "_blank");
+    const url = activeBusinessId ? `/api/export?activeBusinessId=${activeBusinessId}` : "/api/export";
+    window.open(url, "_blank");
   };
 
   const addToBuyingList = async (product: EnrichedProduct, customQty?: number): Promise<boolean> => {
@@ -1126,7 +1247,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
 
       const res = await fetch("/api/buying-list", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({
           productId: product.id,
           quantityToBuy: qty,
@@ -1149,7 +1273,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/buying-list", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ id, isCompleted }),
       });
       const json = await res.json();
@@ -1167,7 +1294,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/buying-list", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getBusinessHeaders(),
+        },
         body: JSON.stringify({ id, quantityToBuy }),
       });
       const json = await res.json();
@@ -1183,7 +1313,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
 
   const removeBuyingItem = async (id: number): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/buying-list?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/buying-list?id=${id}`, {
+        method: "DELETE",
+        headers: getBusinessHeaders(),
+      });
       const json = await res.json();
       if (json.success) {
         await fetchBuyingList();
@@ -1197,7 +1330,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
 
   const clearCompletedBuyingItems = async (): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/buying-list?clearCompleted=true`, { method: "DELETE" });
+      const res = await fetch(`/api/buying-list?clearCompleted=true`, {
+        method: "DELETE",
+        headers: getBusinessHeaders(),
+      });
       const json = await res.json();
       if (json.success) {
         await fetchBuyingList();
@@ -1212,7 +1348,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
   const resetWithDemoData = async () => {
     setIsLoading(true);
     try {
-      await fetch("/api/seed", { method: "POST" });
+      await fetch("/api/seed", {
+        method: "POST",
+        headers: getBusinessHeaders(),
+      });
       await refreshData();
     } catch (err) {
       console.error(err);
@@ -1225,6 +1364,10 @@ export function StockProvider({ children }: { children: React.ReactNode }) {
     <StockContext.Provider
       value={{
         user,
+        activeBusinessId,
+        availableBusinesses,
+        selectActiveBusiness,
+        getBusinessHeaders,
         isAuthenticated: !!user,
         isOwner: user?.role === "OWNER",
         isPlatformAdmin: !!user?.isPlatformAdmin,

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { recordSale } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
+    const { businessId, actorId, actorName, userRole } = await requireRouteBusinessContext(request, body);
     const {
       productId,
       quantity,
@@ -19,6 +19,9 @@ export async function POST(request: Request) {
       amountPaid,
       notes,
       customDate,
+      occurredAt,
+      clientTimestamp,
+      isOfflineSync,
       idempotencyKey,
     } = body;
 
@@ -70,7 +73,7 @@ export async function POST(request: Request) {
       : 0;
 
     const result = await recordSale({
-      userId: businessId,
+      businessId,
       actorId,
       actorName,
       actorRole: userRole,
@@ -80,6 +83,9 @@ export async function POST(request: Request) {
       amountPaid: paid,
       notes: notes?.trim() || undefined,
       customDate: customDate ? new Date(customDate) : undefined,
+      occurredAt: occurredAt ?? undefined,
+      clientTimestamp: clientTimestamp ?? undefined,
+      isOfflineSync: Boolean(isOfflineSync),
       idempotencyKey: resolvedIdempotencyKey,
     });
 
@@ -88,16 +94,11 @@ export async function POST(request: Request) {
       data: result,
       message: result.isDuplicateReplay
         ? "Sale was previously recorded (idempotent replay)."
+        : result.isQuarantined
+        ? "Sale recorded! Stock movement quarantined for owner timestamp review."
         : "Sale recorded successfully! Stock and customer balance updated.",
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to record sale:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "We couldn't save this sale. Check your connection and try again." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "We couldn't save this sale. Check your connection and try again.");
   }
 }

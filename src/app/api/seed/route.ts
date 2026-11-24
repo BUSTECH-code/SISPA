@@ -1,25 +1,22 @@
 import { NextResponse } from "next/server";
 import { seedBuildingMaterialDemoData } from "@/server/stockService";
-import { requireAuth } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { assertCan } from "@/server/authorization";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    await seedBuildingMaterialDemoData(user.id);
+    const { businessId, actorId, authContext } = await requireRouteBusinessContext(request);
+    assertCan(authContext, "BUSINESS_SETTINGS", { businessId });
+    await seedBuildingMaterialDemoData(businessId, actorId);
+
     return NextResponse.json({
       success: true,
       message: "Sample building-material stock and sales history loaded successfully!",
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to seed sample stock:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to initialize sample data. Please try again." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Failed to initialize sample data. Please try again.");
   }
 }

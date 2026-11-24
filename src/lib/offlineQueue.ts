@@ -264,14 +264,29 @@ export async function syncSingleMutation(mutation: OfflineMutation): Promise<{
   await updateMutationStatus(mutation.id, "SYNCING");
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": mutation.id,
+      "X-Client-Tx-Id": mutation.id,
+    };
+    if (Number.isInteger(mutation.businessId) && mutation.businessId > 0) {
+      headers["X-Business-Id"] = String(mutation.businessId);
+    }
+
+    const syncPayload = {
+      ...(mutation.payload || {}),
+      ...(Number.isInteger(mutation.businessId) && mutation.businessId > 0 && !mutation.payload?.activeBusinessId
+        ? { activeBusinessId: mutation.businessId }
+        : {}),
+      clientTimestamp:
+        mutation.payload?.clientTimestamp ?? new Date(mutation.createdAt).toISOString(),
+      isOfflineSync: true,
+    };
+
     const res = await fetch(mutation.endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Idempotency-Key": mutation.id,
-        "X-Client-Tx-Id": mutation.id,
-      },
-      body: JSON.stringify(mutation.payload),
+      headers,
+      body: JSON.stringify(syncPayload),
     });
 
     const json = await res.json().catch(() => null);

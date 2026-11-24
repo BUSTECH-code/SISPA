@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, resolveBusinessContext } from "@/server/authService";
+import { getCurrentUser, requireRouteBusinessContext } from "@/server/authService";
 import {
   getAllEnrichedProducts,
   getAllCustomers,
@@ -13,6 +13,7 @@ import {
   formatWhatsAppWeeklyBriefing,
   type ParsedBusinessAction,
 } from "@/domain/nlpAssistant";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +40,11 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) {
       return NextResponse.json({ success: false, error: "Please log in to use the assistant." }, { status: 401 });
     }
-
-    if (user.isPlatformAdmin) {
+    if (currentUser.isPlatformAdmin) {
       return NextResponse.json(
         {
           success: false,
@@ -54,18 +54,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { businessId, userRole, actorId, actorName } = resolveBusinessContext(user);
-
     const body = await request.json();
+    const { businessId, userRole, actorId, actorName, authContext } = await requireRouteBusinessContext(request, body);
     const { message, executeAction, actionData } = body;
 
-    // 1. If executing a confirmed structured action
     if (executeAction && actionData) {
       const { intent, productId, quantity, customerId, amount, supplierName } = actionData;
 
       if (intent === "RECORD_SALE") {
         await recordSale({
-          userId: businessId,
+          businessId,
           actorId,
           actorName,
           actorRole: userRole,
@@ -84,7 +82,7 @@ export async function POST(request: NextRequest) {
 
       if (intent === "RECORD_PAYMENT") {
         await recordCustomerPayment({
-          userId: businessId,
+          businessId,
           actorId,
           actorName,
           actorRole: userRole,
@@ -102,7 +100,7 @@ export async function POST(request: NextRequest) {
 
       if (intent === "RECORD_DELIVERY") {
         await recordDelivery({
-          userId: businessId,
+          businessId,
           actorId,
           actorName,
           actorRole: userRole,
@@ -124,13 +122,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Empty message." }, { status: 400 });
     }
 
-    // Load business authoritative data (Tenant-isolated)
     const [products, customers] = await Promise.all([
-      getAllEnrichedProducts(businessId, userRole),
-      getAllCustomers(businessId),
+      getAllEnrichedProducts(businessId, userRole, actorId),
+      getAllCustomers(businessId, actorId),
     ]);
 
-    // Parse natural language using the domain engine
     const parsed: ParsedBusinessAction = parseNaturalLanguageInput({
       text: message,
       products: products.map((p) => ({
@@ -146,7 +142,6 @@ export async function POST(request: NextRequest) {
       })),
     });
 
-    // Handle Query Intents
     if (parsed.intent === "QUERY_DEBT") {
       const debtors = customers.filter((c) => c.outstandingBalance > 0);
       const totalDebt = debtors.reduce((sum, c) => sum + c.outstandingBalance, 0);
@@ -196,7 +191,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (parsed.intent === "QUERY_REPORT") {
-      // Capability check: Staff cannot access financial reports
       if (userRole === "STAFF") {
         return NextResponse.json({
           success: true,
@@ -205,7 +199,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const report = await getBusinessPeriodReport(businessId, 7, userRole);
+      const report = await getBusinessPeriodReport(businessId, 7, userRole, actorId);
       const urgentItems = products
         .filter((p) => p.intelligence.status === "RUNNING_LOW")
         .map((p) => ({
@@ -216,7 +210,7 @@ export async function POST(request: NextRequest) {
         }));
 
       const reply = formatWhatsAppWeeklyBriefing({
-        businessName: user.businessName,
+        businessName: authContext.business.name,
         totalSalesValue: report.metrics.totalSalesValue,
         salesCount: report.metrics.salesCount,
         cashCollected: report.metrics.cashCollected,
@@ -245,7 +239,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Overview of shop stock
       const low = products.filter((p) => p.intelligence.status === "RUNNING_LOW").length;
       const ok = products.filter((p) => p.intelligence.status === "OK").length;
       return NextResponse.json({
@@ -255,7 +248,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Action requiring confirmation (SALE, PAYMENT, DELIVERY)
     if (!parsed.isAmbiguous && parsed.confirmationMessage) {
       return NextResponse.json({
         success: true,
@@ -265,17 +257,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Clarification required (ambiguous input)
     return NextResponse.json({
       success: true,
       replyText: `❓ ${parsed.clarificationPrompt || "Could you clarify what you'd like to do?"}`,
       parsed,
     });
   } catch (error: any) {
-    console.error("WhatsApp Assistant error:", error);
-    return NextResponse.json(
-      { success: false, error: "Error processing your request. Please try again." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Error processing your request. Please try again.");
   }
 }

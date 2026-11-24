@@ -1,23 +1,23 @@
-import { NextResponse } from "next/server";
 import { exportBusinessData } from "@/server/stockService";
-import { requireOwner, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { assertCan } from "@/server/authorization";
 import { recordSecurityAudit } from "@/server/auditService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await requireOwner();
-    const { businessId, actorId, actorName } = resolveBusinessContext(user);
+    const { businessId, actorId, actorName, userRole, authContext } = await requireRouteBusinessContext(request);
+    assertCan(authContext, "EXPORT_DATA", { businessId });
 
-    const payload = await exportBusinessData(businessId);
+    const payload = await exportBusinessData(businessId, actorId, userRole);
 
-    // Record audit event for compliance (Section 17, 18, 21)
     await recordSecurityAudit({
       businessId,
       actorId,
       actorName,
-      actorRole: "OWNER",
+      actorRole: userRole,
       eventType: "BUSINESS_DATA_EXPORTED",
       description: `Shop owner exported full business backup archive (${payload.products.length} products, ${payload.sales.length} sales)`,
       entityType: "businesses",
@@ -25,24 +25,15 @@ export async function GET() {
       source: "WEB",
     });
 
+    const safeBizName = (authContext.business.name || "Business").replace(/\s+/g, "_");
     return new Response(JSON.stringify(payload, null, 2), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Content-Disposition": `attachment; filename="SISPA_Export_${user.businessName.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.json"`,
+        "Content-Disposition": `attachment; filename="SISPA_Export_${safeBizName}_${new Date().toISOString().split("T")[0]}.json"`,
       },
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    if (error.message === "FORBIDDEN_OWNER_ONLY") {
-      return NextResponse.json({ success: false, error: "Only the shop owner can export business records." }, { status: 403 });
-    }
-    console.error("Failed to export business data:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't export your business records." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "We couldn't export your business records.");
   }
 }

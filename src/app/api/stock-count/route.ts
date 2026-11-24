@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { recordStockCount } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
-    const { productId, physicalCount, notes, idempotencyKey } = body;
+    const { businessId, actorId, actorName, userRole } = await requireRouteBusinessContext(request, body);
+    const {
+      productId,
+      physicalCount,
+      notes,
+      occurredAt,
+      clientTimestamp,
+      isOfflineSync,
+      idempotencyKey,
+    } = body;
 
     const headerKey = request.headers.get("x-idempotency-key") || request.headers.get("x-client-tx-id");
     const resolvedIdempotencyKey = (idempotencyKey || headerKey)?.trim() || undefined;
@@ -21,8 +29,15 @@ export async function POST(request: Request) {
       );
     }
 
+    if (physicalCount === undefined || physicalCount === null || physicalCount === "") {
+      return NextResponse.json(
+        { success: false, error: "Please enter 0 or a positive number for the physical count." },
+        { status: 400 }
+      );
+    }
+
     const count = Number(physicalCount);
-    if (isNaN(count) || count < 0) {
+    if (!Number.isFinite(count) || count < 0) {
       return NextResponse.json(
         { success: false, error: "Please enter 0 or a positive number for the physical count." },
         { status: 400 }
@@ -30,32 +45,27 @@ export async function POST(request: Request) {
     }
 
     const result = await recordStockCount({
-      userId: businessId,
+      businessId,
       actorId,
       actorName,
       actorRole: userRole,
       productId: Number(productId),
       physicalCount: count,
       notes,
+      occurredAt: occurredAt ?? undefined,
+      clientTimestamp: clientTimestamp ?? undefined,
+      isOfflineSync: Boolean(isOfflineSync),
       idempotencyKey: resolvedIdempotencyKey,
     });
 
     return NextResponse.json({
       success: true,
       data: result,
-      message: `Stock updated to match your count of ${count} items.`,
+      message: result.isQuarantined
+        ? `Physical count of ${count} queued for owner timestamp review (recount needed).`
+        : `Stock updated to match your count of ${count} items.`,
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to count stock:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "We couldn't update the stock. Please try again.",
-      },
-      { status: 400 }
-    );
+    return handleRouteError(error, "We couldn't update the stock. Please try again.");
   }
 }

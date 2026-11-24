@@ -1,38 +1,28 @@
 import { NextResponse } from "next/server";
 import { recordDailyCashCheck, getDailyCashChecks } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId } = resolveBusinessContext(user);
-
-    const checks = await getDailyCashChecks(businessId, 14);
+    const { businessId, actorId } = await requireRouteBusinessContext(request);
+    const checks = await getDailyCashChecks(businessId, 14, actorId);
 
     return NextResponse.json({
       success: true,
       data: checks,
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to load cash checks:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't load cash checks." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "We couldn't load cash checks.");
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
-
     const body = await request.json();
+    const { businessId, actorId, actorName, userRole } = await requireRouteBusinessContext(request, body);
     const { checkDate, actualCash, notes } = body;
 
     const actual = Number(actualCash);
@@ -46,7 +36,7 @@ export async function POST(request: Request) {
     const todayStr = checkDate || new Date().toISOString().split("T")[0];
 
     const result = await recordDailyCashCheck({
-      userId: businessId,
+      businessId,
       actorId,
       actorName,
       actorRole: userRole,
@@ -71,13 +61,6 @@ export async function POST(request: Request) {
       message,
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to record cash check:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to record cash check." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "Failed to record cash check.");
   }
 }

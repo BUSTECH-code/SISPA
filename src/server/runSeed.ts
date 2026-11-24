@@ -2,7 +2,7 @@ import "dotenv/config";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createUser, createStaffMember } from "./authService";
+import { createUser, createStaffMember, ensureBusinessForOwner } from "./authService";
 import { seedBuildingMaterialDemoData } from "./stockService";
 
 async function main() {
@@ -53,7 +53,8 @@ async function main() {
     console.log(`Created demo platform admin: ${adminEmail} (password: password123)`);
   }
 
-  await seedBuildingMaterialDemoData(demoUser.id);
+  const demoBiz = await ensureBusinessForOwner(demoUser);
+  await seedBuildingMaterialDemoData(demoBiz.id, demoUser.id);
   console.log("Seeding complete for demo shop!");
   process.exit(0);
 }

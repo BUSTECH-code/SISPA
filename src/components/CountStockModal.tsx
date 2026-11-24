@@ -5,7 +5,7 @@ import { useStock } from "@/context/StockContext";
 import { Scale, X, Check, AlertCircle, ArrowRight } from "lucide-react";
 
 export function CountStockModal() {
-  const { activeModal, selectedProduct, products, closeModal, refreshData, enqueueLocalMutation } = useStock();
+  const { activeModal, selectedProduct, products, closeModal, refreshData, enqueueLocalMutation, getBusinessHeaders } = useStock();
 
   const [productId, setProductId] = useState<number | string>("");
   const [physicalCount, setPhysicalCount] = useState<string>("");
@@ -86,6 +86,7 @@ export function CountStockModal() {
         headers: {
           "Content-Type": "application/json",
           "X-Idempotency-Key": clientTxId,
+          ...getBusinessHeaders(),
         },
         body: JSON.stringify(countPayload),
       });

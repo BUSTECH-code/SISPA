@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { getAllExpenses, recordExpense } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext, getAuthContextForUser } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
 import { assertCan } from "@/server/authorization";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, userRole } = resolveBusinessContext(user);
+    const { businessId, actorId, authContext } = await requireRouteBusinessContext(request);
+    assertCan(authContext, "EXPENSE_VIEW", { businessId });
 
-    const authCtx = await getAuthContextForUser(user.id, userRole);
-    assertCan(authCtx, "EXPENSE_VIEW", { businessId });
-
-    const list = await getAllExpenses(businessId);
+    const list = await getAllExpenses(businessId, actorId);
     const totalExpenses = list.reduce((sum, e) => sum + Number(e.amount), 0);
 
     return NextResponse.json({
@@ -24,28 +22,14 @@ export async function GET() {
       },
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    if (error.message?.startsWith("FORBIDDEN") || error.message?.startsWith("STAFF")) {
-      return NextResponse.json(
-        { success: false, error: "Shop expense records are restricted to the business owner." },
-        { status: 403 }
-      );
-    }
-    console.error("Failed to load expenses:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't load shop expenses." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "We couldn't load shop expenses.");
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
+    const { businessId, actorId, actorName, userRole } = await requireRouteBusinessContext(request, body);
     const { title, category, amount, paymentMethod, notes } = body;
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -64,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     const expense = await recordExpense({
-      userId: businessId,
+      businessId,
       actorId,
       actorName,
       actorRole: userRole,
@@ -81,13 +65,6 @@ export async function POST(request: Request) {
       message: "Expense recorded! Business reports updated.",
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to record expense:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to record expense." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "Failed to record expense.");
   }
 }

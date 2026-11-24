@@ -33,6 +33,14 @@ All version-controlled migrations are in `src/db/migrations/`:
   14. `staff_invitations` — Cryptographic, single-use, expiring invitation tokens
   15. `business_subscriptions` — Subscription tracking and plan management
   16. `billing_transactions` — Audit trail for billing and payments
+* `0003_offline_idempotency.sql`: Adds offline idempotency keys (`idempotency_key`) to `sales`, `stock_ledger_entries`, and `customer_payments`.
+* `0004_product_catalog_and_opening_stock.sql` (rollback: `0004_product_catalog_and_opening_stock.down.sql`): Adds `product_families`, `opening_stock_sessions`, `opening_stock_items`, variant/packaging columns on `products` & `sales`, and `occurred_at` / `reconciled_entry_id` on `stock_ledger_entries`.
+* `0005_pending_quarantine_and_integrity.sql` (rollback: `0005_pending_quarantine_and_integrity.down.sql`):
+  - Adds `sessions.active_business_id` for explicit multi-business session context.
+  - Enforces `business_id NOT NULL` + `ON DELETE RESTRICT` across all tenant-scoped tables (`products`, `customers`, `sales`, `customer_payments`, `expenses`, `stock_ledger_entries`, `buying_list_items`, `daily_cash_checks`) with deterministic ambiguity-guarded backfill.
+  - Upgrades `sales.product_id` and `stock_ledger_entries.product_id` foreign keys from `ON DELETE CASCADE` to `ON DELETE RESTRICT`.
+  - Extends `sales` (`refund_amount`, `line_idempotency_key`, `occurred_at`, `timestamp_status`, `timestamp_basis`, `device_timestamp`, return & financial invariant CHECKs) and `opening_stock_items` (`skew_flag`, `device_counted_at`, `timestamp_status`, `timestamp_basis`).
+  - Creates `pending_stock_movements` quarantine table for timestamp-uncertain movements and dependent returns.
 
 ---
 

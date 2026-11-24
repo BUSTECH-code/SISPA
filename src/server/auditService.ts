@@ -41,7 +41,14 @@ export type SecurityEventType =
   | "SUPPORT_ACCESS_REVOKED"
   | "PLATFORM_SETTINGS_CHANGED"
   | "USER_LOGIN_FAILED"
-  | "USER_PASSWORD_CHANGED";
+  | "USER_PASSWORD_CHANGED"
+  | "PENDING_MOVEMENT_QUARANTINED"
+  | "PENDING_MOVEMENT_RESOLVED"
+  | "PENDING_MOVEMENT_COST_UPDATED"
+  | "STOCK_COUNT_TIMESTAMP_CONFIRMED"
+  | "OPENING_STOCK_SESSION_POSTED"
+  | "OPENING_STOCK_SESSION_CANCELLED"
+  | "ACTIVE_BUSINESS_SWITCHED";
 
 export type BusinessActivityType =
   | "SALE"
@@ -139,7 +146,7 @@ export async function getSecurityAuditLogs(params: {
     const records = await db
       .select()
       .from(auditLogs)
-      .where(or(eq(auditLogs.businessId, businessId), eq(auditLogs.userId, businessId)))
+      .where(eq(auditLogs.businessId, businessId))
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
 

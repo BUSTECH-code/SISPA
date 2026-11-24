@@ -1,23 +1,59 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, destroySession, SESSION_COOKIE_NAME, getAuthContextForUser } from "@/server/authService";
+import { NextResponse } from "next/server";
+import {
+  getCurrentSession,
+  destroySession,
+  listUserActiveBusinesses,
+  requireActiveBusinessContext,
+  SESSION_COOKIE_NAME,
+} from "@/server/authService";
 import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ success: true, data: { user: null } });
+    const current = await getCurrentSession();
+    if (!current) {
+      return NextResponse.json({
+        success: true,
+        data: { user: null, activeBusinessId: null, activeBusiness: null, availableBusinesses: [] },
+      });
     }
 
-    const userRole = user.role === "STAFF" ? "STAFF" : user.role === "OWNER" ? "OWNER" : undefined;
-    const authCtx = await getAuthContextForUser(user.id, userRole);
-    const rawCaps = authCtx?.membership?.customCapabilities;
-    const delegatedCapabilities =
-      rawCaps && Array.isArray(rawCaps) && rawCaps.length > 0
-        ? rawCaps
-        : (user.role === "STAFF" ? ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"] : []);
+    const { user, session } = current;
+    const availableBusinesses = await listUserActiveBusinesses(user.id);
+
+    let activeBusinessId: number | null = session.activeBusinessId ?? null;
+    let activeBusiness: { id: number; name: string; currency: string; state: string } | null = null;
+    let effectiveRole = user.role;
+    let delegatedCapabilities: string[] = [];
+
+    if (activeBusinessId) {
+      try {
+        const authCtx = await requireActiveBusinessContext({
+          userId: user.id,
+          activeBusinessId,
+        });
+        activeBusiness = {
+          id: authCtx.business.id,
+          name: authCtx.business.name,
+          currency: authCtx.business.currency,
+          state: authCtx.business.state,
+        };
+        effectiveRole = authCtx.membership.role;
+        const rawCaps = authCtx.membership.customCapabilities;
+        delegatedCapabilities =
+          rawCaps && Array.isArray(rawCaps) && rawCaps.length > 0
+            ? rawCaps
+            : effectiveRole === "STAFF"
+            ? ["CAN_SELL", "CAN_RECEIVE", "CAN_COLLECT", "CAN_COUNT"]
+            : [];
+      } catch {
+        // Bound business is no longer active or accessible — do NOT infer another business
+        activeBusinessId = null;
+        activeBusiness = null;
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -26,16 +62,23 @@ export async function GET() {
           id: user.id,
           email: user.email,
           fullName: user.fullName,
-          role: user.role,
-          businessName: user.businessName,
+          role: effectiveRole,
+          businessName: activeBusiness?.name ?? user.businessName,
           businessOwnerId: user.businessOwnerId,
           isPlatformAdmin: !!user.isPlatformAdmin,
           delegatedCapabilities,
+          activeBusinessId,
         },
+        activeBusinessId,
+        activeBusiness,
+        availableBusinesses,
       },
     });
-  } catch (error: any) {
-    return NextResponse.json({ success: true, data: { user: null } });
+  } catch {
+    return NextResponse.json({
+      success: true,
+      data: { user: null, activeBusinessId: null, activeBusiness: null, availableBusinesses: [] },
+    });
   }
 }
 
@@ -54,7 +97,7 @@ export async function POST() {
 
     response.cookies.delete(SESSION_COOKIE_NAME);
     return response;
-  } catch (error: any) {
+  } catch {
     return NextResponse.json(
       { success: false, error: "Failed to log out." },
       { status: 500 }

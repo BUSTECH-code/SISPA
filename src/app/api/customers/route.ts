@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { getAllCustomers, recordCustomerPayment } from "@/server/stockService";
-import { requireAuth, resolveBusinessContext } from "@/server/authService";
+import { requireRouteBusinessContext } from "@/server/authService";
+import { handleRouteError } from "@/server/routeError";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId } = resolveBusinessContext(user);
-    const customers = await getAllCustomers(businessId);
+    const { businessId, actorId } = await requireRouteBusinessContext(request);
+    const customers = await getAllCustomers(businessId, actorId);
 
     const totalOutstandingDebt = customers.reduce(
       (sum, c) => sum + c.outstandingBalance,
@@ -25,22 +25,14 @@ export async function GET() {
       },
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to load customers:", error);
-    return NextResponse.json(
-      { success: false, error: "We couldn't load customer debt balances." },
-      { status: 500 }
-    );
+    return handleRouteError(error, "We couldn't load customer debt balances.");
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
-    const { businessId, actorId, actorName, userRole } = resolveBusinessContext(user);
     const body = await request.json();
+    const { businessId, actorId, actorName, userRole } = await requireRouteBusinessContext(request, body);
     const { customerId, amount, paymentMethod, notes, idempotencyKey } = body;
 
     const headerKey = request.headers.get("x-idempotency-key") || request.headers.get("x-client-tx-id");
@@ -62,7 +54,7 @@ export async function POST(request: Request) {
     }
 
     const payment = await recordCustomerPayment({
-      userId: businessId,
+      businessId,
       actorId,
       actorName,
       actorRole: userRole,
@@ -79,13 +71,6 @@ export async function POST(request: Request) {
       message: "Payment recorded! Outstanding debt recovered.",
     });
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Please log in." }, { status: 401 });
-    }
-    console.error("Failed to record customer payment:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "Failed to record payment." },
-      { status: 400 }
-    );
+    return handleRouteError(error, "Failed to record payment.");
   }
 }

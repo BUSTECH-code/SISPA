@@ -71,6 +71,8 @@ function initPgMem() {
   runSqlFile("src/db/migrations/0000_shiny_moonstone.sql");
   runSqlFile("src/db/migrations/0002_commercial_tenants_and_invitations.sql");
   runSqlFile("src/db/migrations/0003_offline_idempotency.sql");
+  runSqlFile("src/db/migrations/0004_product_catalog_and_opening_stock.sql");
+  runSqlFile("src/db/migrations/0005_pending_quarantine_and_integrity.sql");
 
   const adapter = mem.adapters.createPg();
   const rawPool = new adapter.Pool();
@@ -82,6 +84,7 @@ function initPgMem() {
     "total_amount",
     "unit_price",
     "amount_paid",
+    "refund_amount",
     "outstanding_amount",
     "amount",
     "expected_cash",
@@ -573,10 +576,12 @@ async function seedInitialData(database: any) {
     const [p1] = await database
       .insert(schema.products)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "Dangote Cement 42.5R (50kg)",
         category: "Cement & Aggregates",
         unit: "Bag",
+        stockUnit: "Bag",
         sellingPrice: "9200",
         desiredCoverageDays: 7,
         minimumStockThreshold: 25,
@@ -586,10 +591,12 @@ async function seedInitialData(database: any) {
     const [p2] = await database
       .insert(schema.products)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "High-Yield TMT Steel Rebar 12mm (12m length)",
         category: "Steel & Iron",
         unit: "Length",
+        stockUnit: "Length",
         sellingPrice: "8500",
         desiredCoverageDays: 14,
         minimumStockThreshold: 50,
@@ -599,10 +606,12 @@ async function seedInitialData(database: any) {
     const [p3] = await database
       .insert(schema.products)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "PVC Pressure Pipe 4-inch (5.8m)",
         category: "Plumbing & Drainage",
         unit: "Length",
+        stockUnit: "Length",
         sellingPrice: "6800",
         desiredCoverageDays: 10,
         minimumStockThreshold: 20,
@@ -612,10 +621,12 @@ async function seedInitialData(database: any) {
     const [p4] = await database
       .insert(schema.products)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "Dulux WeatherShield White Emulsion (20L)",
         category: "Paints & Finishes",
         unit: "Bucket",
+        stockUnit: "Bucket",
         sellingPrice: "48000",
         desiredCoverageDays: 7,
         minimumStockThreshold: 8,
@@ -625,10 +636,12 @@ async function seedInitialData(database: any) {
     const [p5] = await database
       .insert(schema.products)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "Corrugated Aluminum Roofing Sheet 0.45mm (10ft)",
         category: "Roofing",
         unit: "Sheet",
+        stockUnit: "Sheet",
         sellingPrice: "7400",
         desiredCoverageDays: 14,
         minimumStockThreshold: 40,
@@ -638,6 +651,7 @@ async function seedInitialData(database: any) {
     // Stock Ledger
     await database.insert(schema.stockLedgerEntries).values([
       {
+        businessId: biz.id,
         userId: owner.id,
         productId: p1.id,
         entryType: "RESTOCK",
@@ -645,9 +659,11 @@ async function seedInitialData(database: any) {
         unitCost: "8500",
         supplierName: "Dangote Depot Lagos",
         notes: "Trailer delivery received",
+        occurredAt: new Date(now.getTime() - 9 * dayMs),
         createdAt: new Date(now.getTime() - 9 * dayMs),
       },
       {
+        businessId: biz.id,
         userId: owner.id,
         productId: p2.id,
         entryType: "RESTOCK",
@@ -655,9 +671,11 @@ async function seedInitialData(database: any) {
         unitCost: "7800",
         supplierName: "Katsina Steel Rolling Mill",
         notes: "Yard restock",
+        occurredAt: new Date(now.getTime() - 14 * dayMs),
         createdAt: new Date(now.getTime() - 14 * dayMs),
       },
       {
+        businessId: biz.id,
         userId: owner.id,
         productId: p3.id,
         entryType: "RESTOCK",
@@ -665,9 +683,11 @@ async function seedInitialData(database: any) {
         unitCost: "5900",
         supplierName: "Coleman & Pipeline Ltd",
         notes: "Plumbing pipes delivery",
+        occurredAt: new Date(now.getTime() - 8 * dayMs),
         createdAt: new Date(now.getTime() - 8 * dayMs),
       },
       {
+        businessId: biz.id,
         userId: owner.id,
         productId: p4.id,
         entryType: "RESTOCK",
@@ -675,9 +695,11 @@ async function seedInitialData(database: any) {
         unitCost: "42000",
         supplierName: "CAP Plc Coatings Distributor",
         notes: "Paint buckets delivered",
+        occurredAt: new Date(now.getTime() - 6 * dayMs),
         createdAt: new Date(now.getTime() - 6 * dayMs),
       },
       {
+        businessId: biz.id,
         userId: owner.id,
         productId: p5.id,
         entryType: "RESTOCK",
@@ -685,6 +707,7 @@ async function seedInitialData(database: any) {
         unitCost: "6600",
         supplierName: "Tower Aluminum Rolling Mills",
         notes: "Roofing sheets delivered",
+        occurredAt: new Date(now.getTime() - 12 * dayMs),
         createdAt: new Date(now.getTime() - 12 * dayMs),
       },
     ]);
@@ -693,6 +716,7 @@ async function seedInitialData(database: any) {
     const [c1] = await database
       .insert(schema.customers)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "Musa Contractor (Prime Construction)",
         phone: "+234 802 345 6789",
@@ -704,6 +728,7 @@ async function seedInitialData(database: any) {
     const [c2] = await database
       .insert(schema.customers)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         name: "Engr. Danladi (Apex Builders)",
         phone: "+234 803 987 1122",
@@ -713,9 +738,11 @@ async function seedInitialData(database: any) {
       .returning();
 
     // Sales
+    const s1Time = new Date(now.getTime() - 2 * dayMs);
     const [s1] = await database
       .insert(schema.sales)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         customerId: c1.id,
         productId: p1.id,
@@ -723,26 +750,34 @@ async function seedInitialData(database: any) {
         unitPrice: "9200",
         totalAmount: "184000",
         amountPaid: "100000",
+        refundAmount: "0",
         outstandingAmount: "84000",
         paymentStatus: "PARTIAL",
         notes: "Foundation casting cement",
-        createdAt: new Date(now.getTime() - 2 * dayMs),
+        occurredAt: s1Time,
+        timestampStatus: "CONFIRMED",
+        timestampBasis: "SERVER_TIME",
+        createdAt: s1Time,
       })
       .returning();
 
     await database.insert(schema.stockLedgerEntries).values({
+      businessId: biz.id,
       userId: owner.id,
       productId: p1.id,
       saleId: s1.id,
       entryType: "SALE",
       quantityDelta: "-20",
       notes: "Foundation casting cement",
-      createdAt: new Date(now.getTime() - 2 * dayMs),
+      occurredAt: s1Time,
+      createdAt: s1Time,
     });
 
+    const s2Time = new Date(now.getTime() - 1 * dayMs);
     const [s2] = await database
       .insert(schema.sales)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         customerId: c2.id,
         productId: p2.id,
@@ -750,27 +785,35 @@ async function seedInitialData(database: any) {
         unitPrice: "8500",
         totalAmount: "340000",
         amountPaid: "340000",
+        refundAmount: "0",
         outstandingAmount: "0",
         paymentStatus: "PAID",
         notes: "Direct bank transfer for rebar",
-        createdAt: new Date(now.getTime() - 1 * dayMs),
+        occurredAt: s2Time,
+        timestampStatus: "CONFIRMED",
+        timestampBasis: "SERVER_TIME",
+        createdAt: s2Time,
       })
       .returning();
 
     await database.insert(schema.stockLedgerEntries).values({
+      businessId: biz.id,
       userId: owner.id,
       productId: p2.id,
       saleId: s2.id,
       entryType: "SALE",
       quantityDelta: "-40",
       notes: "Direct bank transfer for rebar",
-      createdAt: new Date(now.getTime() - 1 * dayMs),
+      occurredAt: s2Time,
+      createdAt: s2Time,
     });
 
     // 3. Sale recorded by Staff (Musa Aminu)
+    const s3Time = new Date(now.getTime() - 12 * 60 * 60 * 1000);
     const [s3] = await database
       .insert(schema.sales)
       .values({
+        businessId: biz.id,
         userId: owner.id,
         staffUserId: staff.id,
         customerId: c1.id,
@@ -779,14 +822,19 @@ async function seedInitialData(database: any) {
         unitPrice: "9200",
         totalAmount: "92000",
         amountPaid: "50000",
+        refundAmount: "0",
         outstandingAmount: "42000",
         paymentStatus: "PARTIAL",
         notes: "Counter sale for foundation extension recorded by Musa Aminu",
-        createdAt: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+        occurredAt: s3Time,
+        timestampStatus: "CONFIRMED",
+        timestampBasis: "SERVER_TIME",
+        createdAt: s3Time,
       })
       .returning();
 
     await database.insert(schema.stockLedgerEntries).values({
+      businessId: biz.id,
       userId: owner.id,
       staffUserId: staff.id,
       productId: p1.id,
@@ -794,11 +842,13 @@ async function seedInitialData(database: any) {
       entryType: "SALE",
       quantityDelta: "-10",
       notes: "Counter sale for foundation extension recorded by Musa Aminu",
-      createdAt: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+      occurredAt: s3Time,
+      createdAt: s3Time,
     });
 
     // 4. Delivery received by Staff (Musa Aminu)
     await database.insert(schema.stockLedgerEntries).values({
+      businessId: biz.id,
       userId: owner.id,
       staffUserId: staff.id,
       productId: p4.id,
@@ -807,12 +857,14 @@ async function seedInitialData(database: any) {
       unitCost: "42000",
       supplierName: "CAP Plc Coatings Distributor",
       notes: "Paint buckets received and offloaded at store by Musa Aminu",
+      occurredAt: new Date(now.getTime() - 18 * 60 * 60 * 1000),
       createdAt: new Date(now.getTime() - 18 * 60 * 60 * 1000),
     });
 
     // Customer Payments
     await database.insert(schema.customerPayments).values([
       {
+        businessId: biz.id,
         userId: owner.id,
         customerId: c1.id,
         amount: "50000",
@@ -821,6 +873,7 @@ async function seedInitialData(database: any) {
         createdAt: new Date(now.getTime() - 1 * dayMs),
       },
       {
+        businessId: biz.id,
         userId: owner.id,
         staffUserId: staff.id,
         customerId: c1.id,
@@ -833,17 +886,20 @@ async function seedInitialData(database: any) {
 
     // 5. Physical stock count performed by Staff (Musa Aminu)
     await database.insert(schema.stockLedgerEntries).values({
+      businessId: biz.id,
       userId: owner.id,
       staffUserId: staff.id,
       productId: p3.id,
       entryType: "ADJUSTMENT",
       quantityDelta: "-2",
       notes: "Physical shelf count: 33 Length (system was 35, difference: -2 damaged pipes)",
+      occurredAt: new Date(now.getTime() - 4 * 60 * 60 * 1000),
       createdAt: new Date(now.getTime() - 4 * 60 * 60 * 1000),
     });
 
     // Buying List Item
     await database.insert(schema.buyingListItems).values({
+      businessId: biz.id,
       userId: owner.id,
       productId: p1.id,
       quantityToBuy: 50,
@@ -855,6 +911,7 @@ async function seedInitialData(database: any) {
     // Expenses
     await database.insert(schema.expenses).values([
       {
+        businessId: biz.id,
         userId: owner.id,
         title: "Generator Diesel Fuel (50L)",
         category: "Shop Operations",
@@ -864,6 +921,7 @@ async function seedInitialData(database: any) {
         createdAt: new Date(now.getTime() - 3 * dayMs),
       },
       {
+        businessId: biz.id,
         userId: owner.id,
         title: "Offloading Labor for Cement Trailer",
         category: "Transport & Logistics",

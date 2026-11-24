@@ -12,13 +12,15 @@ import {
 import { createUser, createStaffMember, updateStaffMembershipStatus, getAuthContextForUser } from "./authService";
 import { can, assertCan } from "./authorization";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { businesses } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
   let ownerA: any;
   let staffA: any;
   let ownerB: any;
+  let bizAId: number;
+  let bizBId: number;
   let cementProdA: any;
   let rebarProdA: any;
   let cementProdB: any;
@@ -32,6 +34,8 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       role: "OWNER",
       businessName: "Musa Building Materials Ltd",
     });
+    const [bizA] = await db.select().from(businesses).where(eq(businesses.ownerUserId, ownerA.id)).limit(1);
+    bizAId = bizA.id;
 
     staffA = await createStaffMember({
       ownerUser: ownerA,
@@ -48,10 +52,12 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       role: "OWNER",
       businessName: "Okon Mega Supplies",
     });
+    const [bizB] = await db.select().from(businesses).where(eq(businesses.ownerUserId, ownerB.id)).limit(1);
+    bizBId = bizB.id;
 
     // 3. Add products for Tenant A
     cementProdA = await addProduct({
-      userId: ownerA.id,
+      businessId: bizAId,
       actorId: ownerA.id,
       actorName: ownerA.fullName,
       actorRole: "OWNER",
@@ -65,7 +71,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
     });
 
     rebarProdA = await addProduct({
-      userId: ownerA.id,
+      businessId: bizAId,
       actorId: ownerA.id,
       actorName: ownerA.fullName,
       actorRole: "OWNER",
@@ -80,7 +86,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
     // 4. Add product for Tenant B
     cementProdB = await addProduct({
-      userId: ownerB.id,
+      businessId: bizBId,
       actorId: ownerB.id,
       actorName: ownerB.fullName,
       actorRole: "OWNER",
@@ -96,7 +102,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
   describe("1. Authority Verification & Regression Defense", () => {
     it("verifies staff can perform delegated operational jobs (Sell, Receive, Collect, Count)", async () => {
-      const staffAuth = await getAuthContextForUser(staffA.id, "STAFF");
+      const staffAuth = await getAuthContextForUser(staffA.id, "STAFF", bizAId);
       expect(can(staffAuth, "SALE_CREATE")).toBe(true);
       expect(can(staffAuth, "DELIVERY_CREATE")).toBe(true);
       expect(can(staffAuth, "PAYMENT_CREATE")).toBe(true);
@@ -104,37 +110,37 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
     });
 
     it("verifies staff CANNOT view owner financial reports, margins or purchase costs", async () => {
-      const staffAuth = await getAuthContextForUser(staffA.id, "STAFF");
+      const staffAuth = await getAuthContextForUser(staffA.id, "STAFF", bizAId);
       expect(can(staffAuth, "PURCHASE_COST_VIEW")).toBe(false);
       expect(can(staffAuth, "PURCHASE_COST_EDIT")).toBe(false);
       expect(can(staffAuth, "REPORT_VIEW")).toBe(false);
 
-      expect(() => assertCan(staffAuth, "REPORT_VIEW", { businessId: ownerA.id })).toThrow(/FORBIDDEN/);
+      expect(() => assertCan(staffAuth, "REPORT_VIEW", { businessId: bizAId })).toThrow(/FORBIDDEN/);
     });
 
     it("verifies staff CANNOT perform sensitive administrative operations", async () => {
-      const staffAuth = await getAuthContextForUser(staffA.id, "STAFF");
+      const staffAuth = await getAuthContextForUser(staffA.id, "STAFF", bizAId);
       expect(can(staffAuth, "STAFF_MANAGE")).toBe(false);
       expect(can(staffAuth, "BUSINESS_SETTINGS")).toBe(false);
       expect(can(staffAuth, "OWNERSHIP_TRANSFER")).toBe(false);
     });
 
     it("verifies staff products view redacts confidential purchase costs and suppliers", async () => {
-      const staffProducts = await getAllEnrichedProducts(ownerA.id, "STAFF", staffA.id);
+      const staffProducts = await getAllEnrichedProducts(bizAId, "STAFF", staffA.id);
       const prod = staffProducts.find((p) => p.id === cementProdA.id);
       expect(prod).toBeDefined();
       expect(prod?.lastSupplierInfo?.unitCost).toBeNull();
     });
 
     it("verifies tenant isolation: Tenant A cannot see or mutate Tenant B products", async () => {
-      const tenantAProducts = await getAllEnrichedProducts(ownerA.id, "OWNER");
+      const tenantAProducts = await getAllEnrichedProducts(bizAId, "OWNER");
       const hasTenantBProd = tenantAProducts.some((p) => p.id === cementProdB.id);
       expect(hasTenantBProd).toBe(false);
 
       // Attempting to sell Tenant B's product under Tenant A must be rejected
       await expect(
         recordSale({
-          userId: ownerA.id,
+          businessId: bizAId,
           actorId: ownerA.id,
           actorName: ownerA.fullName,
           actorRole: "OWNER",
@@ -152,7 +158,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
       // First submission
       const saleResult1 = await recordSale({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -166,13 +172,13 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       expect(saleResult1.sale.id).toBeGreaterThan(0);
 
       // Check stock after first sale: 100 - 10 = 90
-      const productsAfterFirst = await getAllEnrichedProducts(ownerA.id, "OWNER");
+      const productsAfterFirst = await getAllEnrichedProducts(bizAId, "OWNER");
       const stockAfterFirst = productsAfterFirst.find((p) => p.id === cementProdA.id)?.currentStock;
       expect(stockAfterFirst).toBe(90);
 
       // Replay identical mutation
       const saleResult2 = await recordSale({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -188,7 +194,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       expect(saleResult2.isDuplicateReplay).toBe(true);
 
       // Stock must NOT be deducted a second time
-      const productsAfterSecond = await getAllEnrichedProducts(ownerA.id, "OWNER");
+      const productsAfterSecond = await getAllEnrichedProducts(bizAId, "OWNER");
       const stockAfterSecond = productsAfterSecond.find((p) => p.id === cementProdA.id)?.currentStock;
       expect(stockAfterSecond).toBe(90);
     });
@@ -198,7 +204,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
       // First delivery: +20 lengths
       const delivery1 = await recordDelivery({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -208,13 +214,13 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
         idempotencyKey: fixedKey,
       });
 
-      const prods1 = await getAllEnrichedProducts(ownerA.id, "OWNER");
+      const prods1 = await getAllEnrichedProducts(bizAId, "OWNER");
       const stock1 = prods1.find((p) => p.id === rebarProdA.id)?.currentStock;
       expect(stock1).toBe(70); // 50 + 20 = 70
 
       // Replay same delivery
       const replayResult = await recordDelivery({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -226,7 +232,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
       expect(replayResult.id).toBe(delivery1.id);
 
-      const prods2 = await getAllEnrichedProducts(ownerA.id, "OWNER");
+      const prods2 = await getAllEnrichedProducts(bizAId, "OWNER");
       const stock2 = prods2.find((p) => p.id === rebarProdA.id)?.currentStock;
       expect(stock2).toBe(70); // Must remain 70, NOT 90
     });
@@ -234,7 +240,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
     it("replaying a customer payment with identical idempotencyKey does not double-reduce debt", async () => {
       // Create credit sale to establish customer debt
       const saleWithCredit = await recordSale({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -248,14 +254,14 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       const custId = saleWithCredit.sale.customerId!;
       expect(custId).toBeDefined();
 
-      const customers1 = await getAllCustomers(ownerA.id);
+      const customers1 = await getAllCustomers(bizAId);
       const debt1 = customers1.find((c) => c.id === custId)?.outstandingBalance;
       expect(debt1).toBe(30000);
 
       // Record ₦10,000 payment with idempotency key
       const fixedPaymentKey = "idemp_pay_" + Date.now();
       const payment1 = await recordCustomerPayment({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -265,13 +271,13 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
         idempotencyKey: fixedPaymentKey,
       });
 
-      const customers2 = await getAllCustomers(ownerA.id);
+      const customers2 = await getAllCustomers(bizAId);
       const debt2 = customers2.find((c) => c.id === custId)?.outstandingBalance;
       expect(debt2).toBe(20000);
 
       // Replay exact payment
       const paymentReplay = await recordCustomerPayment({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -283,7 +289,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
       expect(paymentReplay.id).toBe(payment1.id);
 
-      const customers3 = await getAllCustomers(ownerA.id);
+      const customers3 = await getAllCustomers(bizAId);
       const debt3 = customers3.find((c) => c.id === custId)?.outstandingBalance;
       expect(debt3).toBe(20000); // Must remain 20000, NOT 10000
     });
@@ -292,7 +298,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
   describe("3. Multi-Line Item Sales & Atomic Ledger Consistency", () => {
     it("records a multi-line item sale atomically across multiple products", async () => {
       const multiSale = await recordSale({
-        userId: ownerA.id,
+        businessId: bizAId,
         actorId: staffA.id,
         actorName: staffA.fullName,
         actorRole: "STAFF",
@@ -310,7 +316,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       expect(multiSale.sales.length).toBe(2);
 
       // Verify stock deducted for BOTH items
-      const prods = await getAllEnrichedProducts(ownerA.id, "OWNER");
+      const prods = await getAllEnrichedProducts(bizAId, "OWNER");
       const cementStock = prods.find((p) => p.id === cementProdA.id)?.currentStock;
       const rebarStock = prods.find((p) => p.id === rebarProdA.id)?.currentStock;
 
@@ -318,7 +324,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       expect(rebarStock).toBe(66); // 50 + 20 (delivery) - 4 (multi-sale) = 66
 
       // Verify customer debt balance
-      const custs = await getAllCustomers(ownerA.id);
+      const custs = await getAllCustomers(bizAId);
       const chiefCust = custs.find((c) => c.id === multiSale.sale.customerId);
       expect(chiefCust?.outstandingBalance).toBe(25000);
     });
@@ -329,19 +335,20 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       // Suspend staff member
       await updateStaffMembershipStatus({
         ownerUser: ownerA,
+        businessId: bizAId,
         staffUserId: staffA.id,
         newStatus: "SUSPENDED",
         reason: "Counter desk rotation",
       });
 
       // Verify authorization check fails
-      const suspendedCtx = await getAuthContextForUser(staffA.id, "STAFF");
+      const suspendedCtx = await getAuthContextForUser(staffA.id, "STAFF", bizAId);
       expect(can(suspendedCtx, "SALE_CREATE")).toBe(false);
 
       // Attempting to record sale with suspended staff must fail
       await expect(
         recordSale({
-          userId: ownerA.id,
+          businessId: bizAId,
           actorId: staffA.id,
           actorName: staffA.fullName,
           actorRole: "STAFF",
@@ -354,6 +361,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
       // Reactivate staff for subsequent tests
       await updateStaffMembershipStatus({
         ownerUser: ownerA,
+        businessId: bizAId,
         staffUserId: staffA.id,
         newStatus: "ACTIVE",
         reason: "Returned to counter duty",
@@ -363,7 +371,7 @@ describe("SISPA Phase 3 Independent Verification & Hardening Suite", () => {
 
   describe("5. Audit Trail Attribution & Integrity", () => {
     it("verifies all operational actions preserve staff user ID and full name in audit logs", async () => {
-      const logs = await getAuditLogs(ownerA.id, "OWNER", 50);
+      const logs = await getAuditLogs(bizAId, "OWNER", 50);
       expect(logs.length).toBeGreaterThan(0);
 
       const staffLogs = logs.filter((l) => l.actorId === staffA.id);

@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createUser, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/server/authService";
+import {
+  createUser,
+  createSession,
+  ensureBusinessForOwner,
+  listUserActiveBusinesses,
+  SESSION_COOKIE_NAME,
+  SESSION_DURATION_MS,
+} from "@/server/authService";
 import { seedBuildingMaterialDemoData } from "@/server/stockService";
 
 export const dynamic = "force-dynamic";
@@ -37,11 +44,14 @@ export async function POST(request: NextRequest) {
       businessName: businessName || "My Building Materials Shop",
     });
 
-    // Automatically seed sample store stock for their new account so they can immediately see value
-    await seedBuildingMaterialDemoData(user.id);
+    const business = await ensureBusinessForOwner(user);
 
-    // Create session
-    const session = await createSession(user.id);
+    // Seed sample store stock for the newly created business using explicit businessId
+    await seedBuildingMaterialDemoData(business.id, user.id);
+
+    // Bind explicit activeBusinessId on signup session
+    const session = await createSession(user.id, business.id);
+    const availableBusinesses = await listUserActiveBusinesses(user.id);
 
     const response = NextResponse.json({
       success: true,
@@ -50,14 +60,15 @@ export async function POST(request: NextRequest) {
         email: user.email,
         fullName: user.fullName,
         role: user.role,
-        businessName: user.businessName,
+        businessName: business.name,
         businessOwnerId: user.businessOwnerId,
         isPlatformAdmin: Boolean(user.isPlatformAdmin),
+        activeBusinessId: business.id,
+        availableBusinesses,
       },
       message: "Account created successfully! Welcome to SISPA 1.0.",
     });
 
-    // Set cookie
     response.cookies.set({
       name: SESSION_COOKIE_NAME,
       value: session.id,

@@ -10,7 +10,7 @@ interface OwnerSupportRequestModalProps {
 }
 
 export function OwnerSupportRequestModal({ isOpen, onClose }: OwnerSupportRequestModalProps) {
-  const { user } = useStock();
+  const { user, getBusinessHeaders } = useStock();
   const [reason, setReason] = useState("");
   const [scope, setScope] = useState<
     "ACCOUNT_WHATSAPP" | "CATALOG_DIAGNOSTICS" | "DEBT_RECONCILIATION" | "SYSTEM_CONFIG" | "READ_ONLY"
@@ -36,7 +36,7 @@ export function OwnerSupportRequestModal({ isOpen, onClose }: OwnerSupportReques
     try {
       const res = await fetch("/api/support/request", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getBusinessHeaders() },
         body: JSON.stringify({
           reason: reason.trim(),
           scope,
